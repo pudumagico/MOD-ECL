@@ -1,16 +1,6 @@
 # MOD-CLv2: Multi-label Object Detection with Constraint Loss (Version 2)
 
 Based on MOD-CL made by Team MWIT for the [ROAD-R Competition (2023)](https://sites.google.com/view/road-r/home?authuser=0).
-<!-- 
-Members include
-
-- Sota Moriyama
-- Akihiro Takemura
-- Koji Watanabe
-- Katsumi Inoue
-
-All belong to the National Institute of Informatics, Japan.
-!-->
 
 ## Specifications
 
@@ -68,6 +58,17 @@ docker compose up -d
 docker compose exec mod-cl /bin/bash
 ```
 
+
+### Downloading ROAD++
+Run the following commands in the root folder.
+```
+mkdir ../ROAD++
+mkdir ../ROAD++/train
+mkdir ../ROAD++/train/videos
+```
+
+Go to https://waymo.com/open/download/, connect your google account, then download the data from the google cloud console.
+The videos should be downloaded into ../ROAD++/train/videos folder, and road_waymo_trainval_v1.0.json should be downloaded into the ROAD++ folder. No other files/folders should be required.
 
 ### Running the training
 
