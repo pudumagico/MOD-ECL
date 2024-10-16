@@ -1,0 +1,20 @@
+version: '3'
+services:
+  mod-cl:
+    restart: always
+    shm_size: '32gb'
+    build: .
+    container_name: 'MOD-CL'
+    working_dir: '/root/src'
+    tty: true
+    volumes:
+      - ../:/root/src/MOD-CL
+      - ../../road-dataset:/root/src/road-dataset
+      - ../../ROAD++:/root/src/ROAD++
+    
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
