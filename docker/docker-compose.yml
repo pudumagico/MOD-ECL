@@ -1,14 +1,14 @@
-version: '3'
+version: '1.0'
 services:
   mod-cl:
     restart: always
     shm_size: '32gb'
     build: .
     container_name: 'MOD-CL'
-    working_dir: '/root/src'
+    working_dir: '/root/src/T-NormRL'
     tty: true
     volumes:
-      - ../:/root/src/MOD-CL
+      - ../:/root/src/T-NormRL
       - ../../road-dataset:/root/src/road-dataset
       - ../../ROAD++:/root/src/ROAD++
     
