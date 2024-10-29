@@ -29,6 +29,7 @@ t_norm_values = {
     "frank": 0.0,
     "product": 0.0
 }
+t_norm_values = {key: float('inf') for key in t_norm_values.keys()}
 previous_losses = {key: float('inf') for key in t_norm_values.keys()}
 
 # Learning rate for updating the values
@@ -42,7 +43,7 @@ def select_t_norm():
     if random.random() < epsilon:
         return random.choice(list(t_norm_values.keys()))
     else:
-        return min(t_norm_values, key=t_norm_values.get)
+        return max(t_norm_values, key=t_norm_values.get)
 
 class MOD_YOLOLoss:
     """Criterion class for computing training losses."""
@@ -147,8 +148,6 @@ class MOD_YOLOLoss:
                 pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
         
-
-        
         pred_const = pred_scores.sigmoid()
         if self.hyp.req_loss != 0:
             max_pred = pred_const[:, :, :10].max(-1)[0]
@@ -221,7 +220,6 @@ class MOD_YOLOLoss:
                     else:
                         loss_const[:,req_id] = torch.prod(fuzzy_values, axis=-1)
 
-
                 current_loss = loss_const.sum() / (loss_const.shape[0] * loss_const.shape[1])
                 if self.hyp.reinforcement_loss and current_loss.item() != 0:
                     t_norm_values[self.hyp.req_type] += learning_rate * (1 / current_loss.item())
@@ -236,11 +234,14 @@ class MOD_YOLOLoss:
 
                 loss[3] = current_loss
 
-                previous_loss = previous_losses[self.hyp.req_type ]
+                previous_loss = previous_losses[self.hyp.req_type]
                 if previous_loss != float('inf'):
                     normalized_update = (previous_loss - current_loss.item()) / previous_loss
-                    t_norm_values[self.hyp.req_type ] += learning_rate * normalized_update
-                previous_losses[self.hyp.req_type ] = current_loss.item()
+                    if t_norm_values[self.hyp.req_type] != float('inf'):
+                        t_norm_values[self.hyp.req_type] = learning_rate * normalized_update
+                    else:
+                        t_norm_values[self.hyp.req_type] += learning_rate * normalized_update
+                previous_losses[self.hyp.req_type] = current_loss.item()
 
         with torch.no_grad():
             pred_const = pred_const.detach()
