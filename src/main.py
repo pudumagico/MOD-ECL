@@ -31,7 +31,7 @@ def getArgs():
     parser.add_argument("-no_augment", "--no_augment", action="store_true", help="Use Augmentation")
     parser.add_argument("-max_det", "--max_det", type=int, default=300, help="Maximum detections")
 
-    parser.add_argument("-rl", "--reinforcement-loss", type=bool, default=False, help="Use Reinforcement Learning Loss")
+    parser.add_argument("-rl", "--reinforcement-loss", type=bool, default=True, help="Use Reinforcement Learning Loss")
 
     return parser.parse_args()
 
@@ -67,11 +67,11 @@ def main():
 
     try:
         if not args.no_augment:
-            trainer = MOD_YOLOTrainer(overrides={"device":args.cuda, "project": f"../runs/{folder_name}", "data":f"../config/dataset_task{args.task}.yaml", "task":"detect", "model":f"../models/{args.basemodel}.pt",
-                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 24, "max_det": args.max_det, "amp": False})
+            trainer = MOD_YOLOTrainer(overrides={"device": "0", "project": f"../runs/{folder_name}", "data":f"../config/dataset_task{args.task}.yaml", "task":"detect", "model":f"../models/yolov8n.pt",
+                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 32, "max_det": args.max_det, "amp": True})
         else:
             trainer = MOD_YOLOTrainer(overrides={"device":args.cuda, "project": f"../runs/{folder_name}", "data":f"../config/dataset_task{args.task}.yaml", "task":"detect", "model":f"../models/{args.basemodel}.pt",
-                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 32, "hsv_h": 0, "hsv_s": 0, "hsv_v": 0, "translate": 0, "scale": 0, "fliplr": 0, "mosaic": 0, "erasing": 0, "crop_fraction": 0})
+                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 64, "hsv_h": 0, "hsv_s": 0, "hsv_v": 0, "translate": 0, "scale": 0, "fliplr": 0, "mosaic": 0, "erasing": 0, "crop_fraction": 0})
     except Exception as e:
         from ultralytics.utils import DEFAULT_CFG_PATH
         shutil.copyfile("../config/default.yaml", DEFAULT_CFG_PATH)

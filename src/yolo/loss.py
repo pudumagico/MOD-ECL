@@ -25,7 +25,7 @@ t_norm_values = {
     # "dombi": 0.0,
     # "nilpotent_conorm": 0.0,
     "sugeno": 0.0,
-    "yager": 0.0,
+    # "yager": 0.0,
     "frank": 0.0,
     "product": 0.0
 }
@@ -210,10 +210,10 @@ class MOD_YOLOLoss:
                     elif self.hyp.req_type == "sugeno":
                         k_param = self.hyp.k_param if hasattr(self.hyp, 'k_param') else 0.5
                         loss_const[:, req_id] = torch.min(torch.min(fuzzy_values, axis=-1)[0], torch.tensor(k_param, device=self.device))
-                    elif self.hyp.req_type == "yager":
-                        p_param = self.hyp.p_param if hasattr(self.hyp, 'p_param') else 2.0
-                        yager_sum = torch.pow(1 - fuzzy_values, p_param)
-                        loss_const[:, req_id] = 1 - torch.min(torch.tensor(1.0, device=self.device), torch.pow(torch.sum(yager_sum, axis=-1), 1 / p_param))
+                    # elif self.hyp.req_type == "yager":
+                    #     p_param = self.hyp.p_param if hasattr(self.hyp, 'p_param') else 2.0
+                    #     yager_sum = torch.pow(1 - fuzzy_values, p_param)
+                    #     loss_const[:, req_id] = 1 - torch.min(torch.tensor(1.0, device=self.device), torch.pow(torch.sum(yager_sum, axis=-1), 1 / p_param))
                     elif self.hyp.req_type == "frank":
                         frank_prod = (torch.pow(2, fuzzy_values) - 1)
                         loss_const[:, req_id] = torch.log2(1 + torch.prod(frank_prod, axis=-1) / (2 - 1))
@@ -221,8 +221,9 @@ class MOD_YOLOLoss:
                         loss_const[:,req_id] = torch.prod(fuzzy_values, axis=-1)
 
                 current_loss = loss_const.sum() / (loss_const.shape[0] * loss_const.shape[1])
-                if self.hyp.reinforcement_loss and current_loss.item() != 0:
-                    t_norm_values[self.hyp.req_type] += learning_rate * (1 / current_loss.item())
+
+                # if self.hyp.reinforcement_loss and current_loss.item() != 0:
+                #     t_norm_values[self.hyp.req_type] = learning_rate * t_norm_values[self.hyp.req_type] + current_loss.item()
 
                 # Check if current_loss is nan
                 if torch.isnan(current_loss):
@@ -237,10 +238,10 @@ class MOD_YOLOLoss:
                 previous_loss = previous_losses[self.hyp.req_type]
                 if previous_loss != float('inf'):
                     normalized_update = (previous_loss - current_loss.item()) / previous_loss
-                    if t_norm_values[self.hyp.req_type] != float('inf'):
-                        t_norm_values[self.hyp.req_type] = learning_rate * normalized_update
+                    if t_norm_values[self.hyp.req_type] == float('inf'):
+                        t_norm_values[self.hyp.req_type] = normalized_update
                     else:
-                        t_norm_values[self.hyp.req_type] += learning_rate * normalized_update
+                        t_norm_values[self.hyp.req_type] = learning_rate * t_norm_values[self.hyp.req_type] + normalized_update
                 previous_losses[self.hyp.req_type] = current_loss.item()
 
         with torch.no_grad():
@@ -262,7 +263,7 @@ class MOD_YOLOLoss:
         loss[2] *= self.hyp.dfl  # dfl gain
         loss[3] *= self.hyp.req_loss # req_loss gain
 
-        return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
+        return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
 
 
 
