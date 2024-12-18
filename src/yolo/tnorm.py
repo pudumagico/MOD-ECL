@@ -1,60 +1,51 @@
 import torch 
 import numpy as np
 import matplotlib.pyplot as plt
-# T Norms
-def product_tnorm(fuzzy_values, req_ind=None):
-    return torch.prod(fuzzy_values)
 
-def lukaziewics_tnorm(fuzzy_values, req_ind=None):
-    return max(0, torch.sum(fuzzy_values)-len(fuzzy_values) + 1)
+def apply_tnorm_iterative(tnorm, values):
+    # Ensure the input is a tensor with at least one dimension
+    if values.ndim < 1:
+        raise ValueError("Input values must have at least one dimension.")
 
-def minimum_tnorm(fuzzy_values, req_ind=None):
-    # print('fz', fuzzy_values, 'min', torch.min(fuzzy_values),'minaxis', torch.min(fuzzy_values, axis=-1))
-    return torch.min(fuzzy_values)
+    # Move the tensor to CPU and detach if it's on the GPU or requires gradients
+    if values.is_cuda or values.requires_grad:
+        values = values.detach().cpu()
 
-def drastic_tnorm(fuzzy_values, req_ind=None):
-    if torch.any(fuzzy_values == 1):
-        return torch.min(fuzzy_values)
+    # Initialize the result with the first element along the last dimension
+    result = values.select(dim=-1, index=0)  # Select the first slice along the last dimension
+
+    # Iterate over the remaining elements along the last dimension and apply the t-norm
+    for i in range(1, values.shape[-1]):
+        result = torch.tensor([tnorm(a.item(), b.item()) for a, b in zip(result, values.select(dim=-1, index=i))])
+
+    return result
+
+def min_tnorm(a, b):
+    return min(a, b)
+
+def product_tnorm(a, b):
+    return a * b
+
+def lukaziewics_tnorm(a, b):
+    return max(0, a + b - 1)
+
+def drastic_tnorm(a, b):
+    if a == 1:
+        return b
+    elif b == 1:
+        return a
     else:
         return 0
 
-def nilpotentmin_tnorm(fuzzy_values, red_ind=None):
-    sum_pred_const = torch.sum(fuzzy_values)
-    return torch.where(sum_pred_const > 1, torch.min(fuzzy_values), torch.zeros_like(sum_pred_const))
-
-def hamacherprod_tnorm(fuzzy_values, red_ind=None):
-    if torch.all(fuzzy_values == 0):
+def hamacherprod_tnorm(a, b):
+    if a == 0 and b == 0:
         return 0
-    else:
-        sum_pred_const = torch.sum(fuzzy_values, axis=-1)
-        prod_pred_const = torch.prod(fuzzy_values, axis=-1)
-        return prod_pred_const / (sum_pred_const - prod_pred_const)
+    return (a * b) / (a + b - a * b)
 
-# Parametric T Norms
-
-def hamacher_tnorm(fuzzy_values, p, red_ind=None):
-    if torch.isinf(p):
-        return drastic_tnorm(fuzzy_values)
-    elif torch.all(fuzzy_values) == 0 and p == 0:
-        return 0
-    else:
-        sum_pred_const = torch.sum(fuzzy_values, axis=-1)
-        prod_pred_const = torch.prod(fuzzy_values, axis=-1)
-        return prod_pred_const / (p + (1 - p) * (sum_pred_const - prod_pred_const))
-    
-def frank_tnorm(fuzzy_values, p, red_ind=None):
-    frank_prod = torch.pow(p, fuzzy_values) - 1
-    return torch.log(1 + torch.prod(frank_prod, axis=-1) / (p - 1), p)
-
-# def sugenoweber_tnorm(fuzzy_values, p, red_ind=None):
-#     if p == -1:
-#         return drastic_tnorm(fuzzy_values)
-#     elif p > -1 and not torch.isinf(p):
-        
-#         sum_pred_const = torch.sum(fuzzy_values, axis=-1)
-#         prod_pred_const = torch.prod(fuzzy_values, axis=-1)
-        
-#         return max(0, (sum_pred_const ) / () )
+def nilpotentmin_tnorm(a, b):
+    if a + b > 1:
+        return min(a, b)
+    return 0
 
 def plot_2variables(function, resolution=100):
 
@@ -109,7 +100,7 @@ def plot_3variables(function):
     Z_flat = np.array([function(torch.Tensor([xi, yi, ti])) for xi, yi, ti in zip(X_flat, Y_flat, T_flat)])
 
     # Step 4: Filter points where Z < 0.1
-    threshold = 0.1
+    threshold = 0
     mask = Z_flat >= threshold  # Keep only points with Z >= 0.1
     X_filtered = X_flat[mask]
     Y_filtered = Y_flat[mask]
@@ -139,3 +130,4 @@ def plot_3variables(function):
     filename = f"{function.__name__}3v.png"
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     print(f"Plot saved as {filename}")
+

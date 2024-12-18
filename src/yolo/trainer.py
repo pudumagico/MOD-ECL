@@ -163,8 +163,9 @@ class MOD_YOLOTrainer(BaseTrainer):
         plot_results(file=self.csv, on_plot=self.on_plot)  # save results.png
         if self.args.reinforcement_loss:
             with open(f"{self.save_dir}/t_norm_usage.txt", 'w+') as t_norm_usage_file: 
-                t_norm_usage_file.write(json.dumps(self.model.criterion.t_norm_usage))
-
+                # t_norm_usage_file.write(json.dumps(self.model.criterion.t_norm_usage))
+                t_norm_usage_file.write(json.dumps(self.model.module.criterion.t_norm_usage))
+                
     def plot_training_labels(self):
         """Create a labeled training plot of the YOLO model."""
         boxes = np.concatenate([lb["bboxes"] for lb in self.train_loader.dataset.labels], 0)
