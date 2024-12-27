@@ -155,7 +155,7 @@ class MOD_YOLOTrainer(BaseTrainer):
         n = len(metrics) + 1  # number of cols
         s = "" if self.csv.exists() else (("%23s," * n % tuple(["epoch"] + keys)).rstrip(",") + "\n")  # header
         with open(self.csv, "a") as f:
-            f.write(s + ("%23.5g," * n % tuple([self.epoch + 1] + vals)).rstrip(",") + "\n")
+            f.write(s + ("%23.20g," * n % tuple([self.epoch + 1] + vals)).rstrip(",") + "\n")
         self.plot_metrics()  # plot results.png
 
     def plot_metrics(self):
