@@ -23,7 +23,7 @@ t_norm_values = {
     "hamacher_product": 0.0,
     "frank": 0.0,
     "yager": 0.0,
-    "weber_sugeno": 0.0,
+    "sugeno_weber": 0.0,
     "dombi": 0.0,
     "aczel_alsina": 0.0,
     "hamacher": 0.0,

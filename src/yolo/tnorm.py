@@ -72,9 +72,7 @@ def yager_tnorm(a, b, p = 2):
     return max(0, 1 - ((1 - a)**p + (1 - b)**p)**(1 / p))
 
 def sugeno_weber_tnorm(a, b, p = 1):
-    if p == 0:
-        return lukasiewicz_tnorm(a,b)
-    return (a + b - p * a * b) / (1 + p * (1 - a) * (1 - b))
+    return max(0, (a + b - 1 + p * a * b) / (1 + p))
 
 def dombi_tnorm(a, b, p = 1):
     if a == 0 or b == 0:
@@ -97,7 +95,8 @@ def plot_2variables(function, resolution=100):
     for xi in x:
         row = []
         for yi in y:
-            row.append(function(torch.Tensor([xi, yi])))  
+            # row.append(function(torch.Tensor([xi, yi])))  
+            row.append(apply_tnorm_iterative(function, torch.Tensor([xi, yi])))  
         z_values.append(row)
         
     Z = np.array(z_values)
@@ -106,12 +105,12 @@ def plot_2variables(function, resolution=100):
     X, Y = np.meshgrid(x, y) 
     fig = plt.figure(figsize=(8, 6))
     ax = fig.add_subplot(111, projection='3d')
-    ax.plot_surface(X, Y, Z.T, cmap='cividis') 
+    ax.plot_surface(X, Y, Z.T, cmap='twilight') 
 
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
-    ax.set_title('3D Plot of f(x, y)')
+    ax.set_title(f'3D Plot of {function.__name__}(x, y)')
 
     plt.show()
     filename = f"{function.__name__}2v.png"
@@ -119,40 +118,55 @@ def plot_2variables(function, resolution=100):
     print(f"Plot saved as {filename}")
    
     
-def plot_3variables(function):
+def plot_3variables(function, resolution=30):
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
+    import torch
 
     x = np.linspace(0, 1, resolution)
     y = np.linspace(0, 1, resolution)
     t = np.linspace(0, 1, resolution)
 
-    X, Y, T = np.meshgrid(x, y, t)
+    # Initialize Z values
+    Z_values = np.zeros((resolution, resolution, resolution))
+
+    # Compute Z values for each combination of x, y, and t
+    for i, xi in enumerate(x):
+        for j, yi in enumerate(y):
+            for k, ti in enumerate(t):
+                Z_values[i, j, k] = apply_tnorm_iterative(function, torch.Tensor([xi, yi, ti]))
+
+    # Create 3D scatter data
+    X, Y, T = np.meshgrid(x, y, t, indexing='ij')
+    Z_flat = Z_values.flatten()
     X_flat = X.flatten()
     Y_flat = Y.flatten()
     T_flat = T.flatten()
-    Z_flat = np.array([function(torch.Tensor([xi, yi, ti])) for xi, yi, ti in zip(X_flat, Y_flat, T_flat)])
 
+    # Filter points by a threshold
     threshold = 0
-    mask = Z_flat >= threshold 
+    mask = Z_flat >= threshold
     X_filtered = X_flat[mask]
     Y_filtered = Y_flat[mask]
     T_filtered = T_flat[mask]
     Z_filtered = Z_flat[mask]
 
+    # Plot the results
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
 
-    scatter = ax.scatter(X_filtered, Y_filtered, T_filtered, c=Z_filtered, cmap='cividis', s=10)
-
+    scatter = ax.scatter(X_filtered, Y_filtered, T_filtered, c=Z_filtered, cmap='twilight', s=10)
     cbar = plt.colorbar(scatter, ax=ax)
     cbar.set_label('Function Value (Z)')
 
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('T')
-    ax.set_title('3D Scatter Plot of f(x, y, t) (Z >= 0.1)')
+    ax.set_title(f'3D Scatter Plot of {function.__name__}(x, y, t)')
 
     plt.show()
-    filename = f"{function.__name__}3v.png"
+    filename = f"{function.__name__}_3v.png"
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     print(f"Plot saved as {filename}")
 
