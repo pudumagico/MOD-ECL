@@ -3,23 +3,23 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
+DEBUG = 0
+
 def apply_tnorm_iterative(tnorm, values):
     if values.ndim < 1:
         raise ValueError("Input values must have at least one dimension.")
 
-    # Get the shape of the tensor except the last dimension
     leading_shape = values.shape[:-1]
-    result = values.select(dim=-1, index=0)  # Start with the first value in the last dimension
-
-    # Iteratively apply the t-norm across the last dimension
+    result = values.select(dim=-1, index=0) 
     for i in range(1, values.shape[-1]):
-        # Select the next slice along the last dimension
         next_values = values.select(dim=-1, index=i)
         
-        # Apply the t-norm elementwise
         result = torch.tensor(
-            [tnorm(a.item(), b.item()) for a, b in zip(result.view(-1), next_values.view(-1))]
+            [tnorm(a.item(), b.item()) for a, b in zip(result.view(-1), next_values.view(-1))],
+            device=values.device,
+            requires_grad=True
         ).view(leading_shape)
+
 
     return result
 
@@ -170,3 +170,81 @@ def plot_3variables(function, resolution=30):
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     print(f"Plot saved as {filename}")
 
+if DEBUG:
+        
+    B, N, V = 3, 2, 2  # Batch size and number of values
+    fuzzy_tensor = torch.rand(B, N, V)  # Random tensor with values in [0, 1]
+
+    result_minimum = apply_tnorm_iterative(min_tnorm, fuzzy_tensor)
+    result_prod = apply_tnorm_iterative(product_tnorm, fuzzy_tensor)
+    result_luk = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_tensor)
+    result_dras = apply_tnorm_iterative(drastic_tnorm, fuzzy_tensor)
+    result_nil = apply_tnorm_iterative(nilpotentmin_tnorm, fuzzy_tensor)
+    result_hamprod = apply_tnorm_iterative(hamacherprod_tnorm, fuzzy_tensor)
+
+    print("Input Tensor:")
+    print(fuzzy_tensor)
+    print("\nResult with Minimum T-norm:")
+    print(result_minimum)
+    print("\nResult with Product T-norm:")
+    print(result_prod)
+    print("\nResult with Luk T-norm:")
+    print(result_luk)
+    print("\nResult with nil T-norm:")
+    print(result_nil)
+    print("\nResult with hamprod T-norm:")
+    print(result_hamprod)
+    print("\nResult with drastic T-norm:")
+    print(result_dras)
+
+    result_minimum = apply_tnorm_iterative(min_tnorm, fuzzy_tensor)
+    result_prod = apply_tnorm_iterative(product_tnorm, fuzzy_tensor)
+    result_luk = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_tensor)
+    result_dras = apply_tnorm_iterative(drastic_tnorm, fuzzy_tensor)
+    result_nil = apply_tnorm_iterative(nilpotentmin_tnorm, fuzzy_tensor)
+    result_hamprod = apply_tnorm_iterative(hamacherprod_tnorm, fuzzy_tensor)
+    
+    print("Input Tensor:")
+    print(fuzzy_tensor)
+    print("\nResult with Minimum T-norm:")
+    print(result_minimum)
+    print("\nResult with Product T-norm:")
+    print(result_prod)
+    print("\nResult with Luk T-norm:")
+    print(result_luk)
+    print("\nResult with nil T-norm:")
+    print(result_nil)
+    print("\nResult with hamprod T-norm:")
+    print(result_hamprod)
+    print("\nResult with drastic T-norm:")
+    print(result_dras)
+
+    # plot_2variables(product_tnorm)
+    # plot_2variables(min_tnorm)
+    # plot_2variables(lukasiewicz_tnorm)
+    # plot_2variables(drastic_tnorm)
+    # plot_2variables(nilpotentmin_tnorm)
+    # plot_2variables(hamacherprod_tnorm)
+
+    # plot_2variables(frank_tnorm)
+    # plot_2variables(yager_tnorm)
+    # plot_2variables(aczel_alsina_tnorm)
+    # plot_2variables(sugeno_weber_tnorm)
+    # plot_2variables(dombi_tnorm)
+    # plot_2variables(schweizer_sklar_tnorm)
+    # plot_2variables(hamacher_tnorm)
+
+    # plot_3variables(product_tnorm)
+    # plot_3variables(min_tnorm)
+    # plot_3variables(lukasiewicz_tnorm)
+    # plot_3variables(drastic_tnorm)
+    # plot_3variables(nilpotentmin_tnorm)
+    # plot_3variables(hamacherprod_tnorm)
+
+    # plot_3variables(frank_tnorm)
+    # plot_3variables(yager_tnorm)
+    # plot_3variables(aczel_alsina_tnorm)
+    # plot_3variables(sugeno_weber_tnorm)
+    # plot_3variables(dombi_tnorm)
+    # plot_3variables(schweizer_sklar_tnorm)
+    # plot_3variables(hamacher_tnorm)
