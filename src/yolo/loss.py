@@ -180,17 +180,20 @@ class MOD_YOLOLoss:
                     fuzzy_values = 1 - pred_const[:,req_ind]
                     
                     if self.hyp.req_type == "lukasiewicz":
-                        loss_const[:,req_id] = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_values)
+                        loss_const[:,req_id] = lukasiewicz_tnorm_tensor(fuzzy_values)
+                        # loss_const[:,req_id] = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_values)
                     elif self.hyp.req_type == "minimum":
-                        loss_const[:,req_id] = apply_tnorm_iterative(min_tnorm, fuzzy_values)
+                        loss_const[:,req_id] = min_tnorm_tensor(fuzzy_values)
+                        # loss_const[:,req_id] = apply_tnorm_iterative(min_tnorm, fuzzy_values)
+                    elif self.hyp.req_type == "product":
+                        loss_const[:,req_id] = product_tnorm_tensor(fuzzy_values)
+                        # loss_const[:,req_id] = apply_tnorm_iterative(product_tnorm, fuzzy_values)
                     elif self.hyp.req_type == "drastic":
                         loss_const[:,req_id] = apply_tnorm_iterative(drastic_tnorm, fuzzy_values)
                     elif self.hyp.req_type == "nilpotent_minimum":
                         loss_const[:,req_id] = apply_tnorm_iterative(nilpotentmin_tnorm, fuzzy_values)
                     elif self.hyp.req_type == "hamacher_product":
                         loss_const[:,req_id] = apply_tnorm_iterative(hamacherprod_tnorm, fuzzy_values)
-                    elif self.hyp.req_type == "product":
-                        loss_const[:,req_id] = apply_tnorm_iterative(product_tnorm, fuzzy_values)
                     elif self.hyp.req_type == "yager":
                         loss_const[:,req_id] = apply_tnorm_iterative(yager_tnorm, fuzzy_values)
                     elif self.hyp.req_type == "frank":
