@@ -3,7 +3,7 @@ import os
 import shutil
 import json 
 
-from yolo.trainer import MOD_YOLOTrainer
+from yolo.trainer import MOD_YOLOTrainer, on_train_epoch_end
 #from ultralytics import 
 from dataset.road_r import ROAD_R
 from dataset.waymo_road import ROAD_PP
@@ -25,13 +25,16 @@ def getArgs():
 
     parser.add_argument("-optimizer", "--optimizer", type=str, default="Adam", help="Optimizer to use")
     parser.add_argument("-lr", "--lr", type=float, default=0.001, help="Learning rate")
+    parser.add_argument("-lrf", type=float, default=0.01, help="Learning rate final")
     parser.add_argument("-vanilla", "--vanilla", action="store_true", help="Use vanilla YOLO")
     parser.add_argument("-freeze", "--freeze", type=int, default=0, help="Freeze layers")
     parser.add_argument("-req-type", "--req-type", type=str, default="product", help="Requirements Loss type")
     parser.add_argument("-no_augment", "--no_augment", action="store_true", help="Use Augmentation")
     parser.add_argument("-max_det", "--max_det", type=int, default=300, help="Maximum detections")
 
-    parser.add_argument("-rl", "--reinforcement-loss", type=bool, default=False, help="Use Reinforcement Learning Loss")
+    parser.add_argument("-rl", "--reinforcement-loss", action="store_true", help="Use Reinforcement Learning Loss")
+    parser.add_argument("-rnd", "--req_num_detect", type=int, default=64, help="Number of required detections")
+    parser.add_argument("-rs", "--req_scheduler", type=float, default=0, help="Scheduler for required detections")
 
     return parser.parse_args()
 
@@ -68,7 +71,7 @@ def main():
     try:
         if not args.no_augment:
             trainer = MOD_YOLOTrainer(overrides={"device":args.cuda, "project": f"../runs/{folder_name}", "data":f"../config/dataset_task{args.task}.yaml", "task":"detect", "model":f"../models/{args.basemodel}.pt",
-                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 24, "max_det": args.max_det, "amp": False})
+                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 24, "max_det": args.max_det, "lrf": args.lrf, "req_num_detect": args.req_num_detect, "req_scheduler": args.req_scheduler})
         else:
             trainer = MOD_YOLOTrainer(overrides={"device":args.cuda, "project": f"../runs/{folder_name}", "data":f"../config/dataset_task{args.task}.yaml", "task":"detect", "model":f"../models/{args.basemodel}.pt",
                                                 "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 32, "hsv_h": 0, "hsv_s": 0, "hsv_v": 0, "translate": 0, "scale": 0, "fliplr": 0, "mosaic": 0, "erasing": 0, "crop_fraction": 0})
@@ -80,6 +83,7 @@ def main():
         print("Please run the script again")
         exit()
 
+    trainer.add_callback('on_train_epoch_end', on_train_epoch_end)
     trainer.train()
 
     if args.reinforcement_loss:

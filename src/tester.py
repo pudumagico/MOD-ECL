@@ -58,7 +58,7 @@ def track(
 def getArgs():
     parser = argparse.ArgumentParser(description='MOD-CL')
     parser.add_argument("-c", "--cuda", type=str, default="0", help="CUDA device")
-    parser.add_argument("-task", "--task", type=int, default=1, choices=[0, 1, 2], help="Task number")
+    parser.add_argument("-task", "--task", type=int, default=1, choices=[0, 1, 2, 3, 4], help="Task number")
     parser.add_argument("--model", type=str, default="train", help="Model to use")
     parser.add_argument("-dataset", "--dataset", type=str, default="road-r", help="Dataset to use")
 
@@ -78,10 +78,17 @@ def main():
     if args.dataset == "road-r":
         videos = "2014-06-26-09-31-18_stereo_centre_02,2015-02-03-08-45-10_stereo_centre_04,"\
                         "2014-12-10-18-10-50_stereo_centre_02,2015-02-06-13-57-16_stereo_centre_01".split(",")
+        video_folder = os.path.join(args.dataset_path, "road_test/videos")
+    elif args.dataset == "road++":
+        videos = ["train_00000"]
+        video_folder = os.path.join(args.dataset_path, "train/videos")
     else:
         assert False, "Dataset not supported"
 
-    model = YOLO(f"../runs/task{args.task}_yolo/{args.model}/weights/best.pt")
+    folder = f"task{args.task}_yolo"
+    if args.task == 4:
+        folder += "_roadpp"
+    model = YOLO(f"../runs/{folder}/{args.model}/weights/best.pt")
 
     predictor = MOD_Predictor()
     model.predictor = predictor
@@ -90,8 +97,9 @@ def main():
         maxsat_v = MaxSAT_Validator(args.constraints_path)
     
     db_final = {}
+    #python tester.py -task 4 -dataset road++ --model train142 --dataset_path ../../ROAD++
     for video_name in videos:
-        test = model.track(os.path.join(args.dataset_path, "road_test/videos", video_name + '.mp4'), save=args.save, save_txt=False, save_conf=False, device=args.cuda, project="../runs/debug", line_width=3, stream=True, tracker=args.tracker, conf=args.conf, max_det=300)
+        test = model.track(os.path.join(video_folder, video_name + '.mp4'), save=args.save, save_txt=False, save_conf=False, device=args.cuda, project="../runs/debug", line_width=3, stream=True, tracker=args.tracker, conf=args.conf, max_det=300)
         #test = model.predict(os.path.join(args.dataset_path, "road_test/rgb-images/", video_name + '/04639.jpg'), save=args.save, save_txt=False, save_conf=False, device=args.cuda, project="../runs/debug", line_width=3, stream=False, conf=args.conf, max_det=300)
         #exit()
         db = {}
@@ -104,7 +112,7 @@ def main():
             for bbox_id in range(len(res.boxes)):
                 bbox_db = {}
                 bbox_db['bbox'] = res.boxes.xyxy[bbox_id].tolist()
-                if args.task == 1:
+                if args.task != 2:
                     bbox_db['labels'] = res.boxes.full_conf[bbox_id].tolist()
                 else:
                     bbox_db['labels'] = maxsat_v.correct_v1(res.boxes.full_conf[bbox_id].tolist(), threshold=args.threshold)

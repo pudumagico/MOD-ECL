@@ -109,7 +109,7 @@ class MOD_YOLOTrainer(BaseTrainer):
 
     def get_validator(self):
         """Returns a DetectionValidator for YOLO model validation."""
-        self.loss_names = "box_loss", "cls_loss", "dfl_loss", "req_loss", "c_violation(nc)", "c_violation(n)"
+        self.loss_names = "box_loss", "cls_loss", "dfl_loss", "req_loss", "c_violation(nc)", "c_violation(n)", "box_rate", "label_rate"
         return MOD_YOLODetectionValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
@@ -155,7 +155,7 @@ class MOD_YOLOTrainer(BaseTrainer):
         n = len(metrics) + 1  # number of cols
         s = "" if self.csv.exists() else (("%23s," * n % tuple(["epoch"] + keys)).rstrip(",") + "\n")  # header
         with open(self.csv, "a") as f:
-            f.write(s + ("%23.5g," * n % tuple([self.epoch + 1] + vals)).rstrip(",") + "\n")
+            f.write(s + ("%23.20g," * n % tuple([self.epoch + 1] + vals)).rstrip(",") + "\n")
         self.plot_metrics()  # plot results.png
 
     def plot_metrics(self):
@@ -211,8 +211,8 @@ def plot_results(file="path/to/results.csv", dir="", segment=False, pose=False, 
         fig, ax = plt.subplots(2, 9, figsize=(21, 6), tight_layout=True)
         index = [1, 2, 3, 4, 5, 6, 7, 10, 11, 14, 15, 16, 17, 18, 8, 9, 12, 13]
     else:
-        fig, ax = plt.subplots(3, 6, figsize=(30, 18), tight_layout=True)
-        index = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+        fig, ax = plt.subplots(3, 7, figsize=(30, 21), tight_layout=True)
+        index = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
     ax = ax.ravel()
     files = list(save_dir.glob("results*.csv"))
     assert len(files), f"No results.csv files found in {save_dir.resolve()}, nothing to plot."
@@ -263,6 +263,8 @@ def build_yolo_dataset(cfg, img_path, batch, data, mode="train", rect=False, str
     )
 
 
+
+from ultralytics.utils.plotting import feature_visualization
 class MOD_YOLO(DetectionModel):
 
     def init_criterion(self):
@@ -270,3 +272,49 @@ class MOD_YOLO(DetectionModel):
         return crit
 
 
+    def _predict_once(self, x, profile=False, visualize=False, embed=None):
+        """
+        Perform a forward pass through the network.
+
+        Args:
+            x (torch.Tensor): The input tensor to the model.
+            profile (bool):  Print the computation time of each layer if True, defaults to False.
+            visualize (bool): Save the feature maps of the model if True, defaults to False.
+            embed (list, optional): A list of feature vectors/embeddings to return.
+
+        Returns:
+            (torch.Tensor): The last output of the model.
+        """
+        y, dt, embeddings = [], [], []  # outputs
+        for m in self.model:
+            if m.f != -1:  # if not from previous layer
+                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+            if profile:
+                self._profile_one_layer(m, x, dt)
+            x = m(x)  # run
+            y.append(x if m.i in self.save else None)  # save output
+            if visualize:
+                feature_visualization(x, m.type, m.i, save_dir=visualize)
+            if embed and m.i in embed:
+                embeddings.append(nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))  # flatten
+                if m.i == max(embed):
+                    return torch.unbind(torch.cat(embeddings, 1), dim=0)
+            # for x_i in x:
+            #     if isinstance(x_i, list):
+            #         for x_i2 in x_i:
+            #             if torch.any(torch.isnan(x_i2)):
+            #                 raise Exception(f"Model diverged with NaN values at layer {m.i}. The weights for this layer are: {m.state_dict()}")
+            #     else:
+            #         if torch.any(torch.isnan(x_i)):
+            #             raise Exception(f"Model diverged with NaN values at layer {m.i}. The weights for this layer are: {m.state_dict()}")
+        return x
+    
+
+
+
+def on_train_epoch_end(trainer):
+    """Callback function to be executed at the end of each training epoch."""
+    # Epochs start at 0
+    hyp = trainer.args
+    if trainer.epoch >= 2:
+        trainer.args.req_loss = min(hyp.req_loss * hyp.req_scheduler, 100)

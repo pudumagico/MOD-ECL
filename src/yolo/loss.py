@@ -25,9 +25,10 @@ t_norm_values = {
     # "dombi": 0.0,
     # "nilpotent_conorm": 0.0,
     "sugeno": 0.0,
-    "yager": 0.0,
+    # "yager": 0.0,
     "frank": 0.0,
-    "product": 0.0
+    "product": 0.0,
+    "soft_godel": 0.0
 }
 previous_losses = {key: float('inf') for key in t_norm_values.keys()}
 
@@ -42,7 +43,7 @@ def select_t_norm():
     if random.random() < epsilon:
         return random.choice(list(t_norm_values.keys()))
     else:
-        return min(t_norm_values, key=t_norm_values.get)
+        return max(t_norm_values, key=t_norm_values.get)
 
 class MOD_YOLOLoss:
     """Criterion class for computing training losses."""
@@ -97,7 +98,7 @@ class MOD_YOLOLoss:
 
     def __call__(self, preds, batch):
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
-        loss = torch.zeros(6, device=self.device)  # box, cls, dfl, req_loss <- Modification point
+        loss = torch.zeros(8, device=self.device)  # box, cls, dfl, req_loss <- Modification point
         feats = preds[1] if isinstance(preds, tuple) else preds
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc), 1
@@ -154,8 +155,10 @@ class MOD_YOLOLoss:
             max_pred = pred_const[:, :, :10].max(-1)[0]
             max_pred_sorted = torch.sort(max_pred, descending=True, dim=-1)
             # 64 -> 128
-            pred_const = torch.gather(pred_const, 1, max_pred_sorted[1][:, :64].unsqueeze(-1).expand(-1, -1, pred_const.shape[-1]))
-            pred_const = pred_const[max_pred_sorted[0][:, :64] > 0.5]
+
+            # Maximum number of label sets to consider per image
+            pred_const = torch.gather(pred_const, 1, max_pred_sorted[1][:, :self.hyp.req_num_detect].unsqueeze(-1).expand(-1, -1, pred_const.shape[-1]))
+            pred_const = pred_const[max_pred_sorted[0][:, :self.hyp.req_num_detect] > 0.5]
             
             if pred_const.shape[0] > 0:
                 pred_const = torch.cat([pred_const, 1-pred_const], axis=-1)
@@ -218,6 +221,9 @@ class MOD_YOLOLoss:
                     elif self.hyp.req_type == "frank":
                         frank_prod = (torch.pow(2, fuzzy_values) - 1)
                         loss_const[:, req_id] = torch.log2(1 + torch.prod(frank_prod, axis=-1) / (2 - 1))
+                    elif self.hyp.req_type == "soft_godel":
+                        softmax_values = torch.nn.functional.softmax(pred_const[:,req_ind], dim=-1)
+                        loss_const[:,req_id] = 1 - (pred_const[:,req_ind] * softmax_values).sum(-1)
                     else:
                         loss_const[:,req_id] = torch.prod(fuzzy_values, axis=-1)
 
@@ -227,16 +233,16 @@ class MOD_YOLOLoss:
                     t_norm_values[self.hyp.req_type] += learning_rate * (1 / current_loss.item())
 
                 # Check if current_loss is nan
-                if torch.isnan(current_loss):
-                    current_loss = current_loss * 0
-                    import csv
-                    with open('losses.csv', 'w') as file:
-                        writer = csv.writer(file)
-                        writer.writerow([self.hyp.req_type, current_loss.item()])
+                # if torch.isnan(current_loss):
+                #     current_loss = current_loss * 0
+                #     import csv
+                #     with open('losses.csv', 'w') as file:
+                #         writer = csv.writer(file)
+                #         writer.writerow([self.hyp.req_type, current_loss.item()])
 
                 loss[3] = current_loss
 
-                previous_loss = previous_losses[self.hyp.req_type ]
+                previous_loss = previous_losses[self.hyp.req_type]
                 if previous_loss != float('inf'):
                     normalized_update = (previous_loss - current_loss.item()) / previous_loss
                     t_norm_values[self.hyp.req_type ] += learning_rate * normalized_update
@@ -244,9 +250,9 @@ class MOD_YOLOLoss:
 
         with torch.no_grad():
             pred_const = pred_const.detach()
-            max_pred_const = pred_const.max(-1)[0] >= 0.2
+            max_pred_const = pred_const.max(-1)[0] >= 0.3
             if max_pred_const.sum().item() > 0:
-                pred_const = (pred_const[max_pred_const] >= 0.2).float().detach()
+                pred_const = (pred_const[max_pred_const] >= 0.3).float().detach()
                 pred_const = torch.cat([pred_const, 1-pred_const], axis=-1)
                 loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]))
                 for req_id in range(self.constraints.shape[0]):
@@ -255,13 +261,24 @@ class MOD_YOLOLoss:
                     loss_const[:,req_id] = torch.min(fuzzy_values, axis=-1)[0]
                 loss[4] = loss_const.sum() / (loss_const.shape[0] * loss_const.shape[1])
                 loss[5] = (loss_const.max(-1)[0]).sum() / (loss_const.shape[0])
+                # Number of boxes that are above the threshold of 0.3 divided by the total number of boxes
+                loss[6] = max_pred_const.sum().item() / (pred_const.shape[0] * pred_const.shape[1])
+                # Number of labels that are above the threshold of 0.3 divided by the total number of labels
+                loss[7] = (max_pred_const.sum().float() / max_pred_const.shape[0]).mean().item()
 
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
         loss[3] *= self.hyp.req_loss # req_loss gain
+        # if self.hyp.req_loss > 0 and self.m.training:
+        #     self.hyp.req_loss = min(self.hyp.req_loss + self.hyp.req_scheduler, 100)
 
-        return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
+        for i in range(4):
+            if torch.isnan(loss[i]):
+                assert False, f"Loss {i} is NaN. The other losses are: {loss}. \nOutput nan: {torch.isnan(preds).sum()}"
+            
+
+        return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
 
 
 

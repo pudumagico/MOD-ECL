@@ -38,7 +38,7 @@ class ROAD_R:
                 "2014-11-25-09-18-32_stereo_centre_04,2014-11-18-13-20-12_stereo_centre_05,2014-11-21-16-07-03_stereo_centre_01," \
                 "2014-12-09-13-21-02_stereo_centre_01,2015-02-03-08-45-10_stereo_centre_02,2015-02-03-19-43-11_stereo_centre_04," \
                 "2015-02-06-13-57-16_stereo_centre_02,2015-02-13-09-16-26_stereo_centre_05,2015-02-24-12-32-19_stereo_centre_04," \
-                "2015-03-03-11-31-36_stereo_centre_01,2014-11-14-16-34-33_stereo_centre_06".split(",")
+                "2015-03-03-11-31-36_stereo_centre_01,2014-11-14-16-34-33_stereo_centre_06,2015-02-13-09-16-26_stereo_centre_02".split(",")
         elif task == 0:
             return ["2014-07-14-14-49-50_stereo_centre_01"]
         else:
