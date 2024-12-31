@@ -1,4 +1,4 @@
-path: /root/src/ROAD++/task4_yolo_roadpp
+path: /root/ROAD++/task4_yolo_roadpp
 train: images/train
 val: images/val
 test:

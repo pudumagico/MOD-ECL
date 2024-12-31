@@ -1,7 +1,5 @@
-import warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
-
 import argparse
+import os
 import shutil
 import json 
 
@@ -9,11 +7,10 @@ from yolo.trainer import MOD_YOLOTrainer
 from dataset.road_r import ROAD_R
 from dataset.waymo_road import ROAD_PP
 
-
 def getArgs():
     parser = argparse.ArgumentParser(description='MOD-CL')
     parser.add_argument("-c", "--cuda", type=str, default="cuda:0", help="CUDA device")
-    parser.add_argument("-task", "--task", type=int, default=2, choices=[0, 1, 2, 3, 4], help="Task number")
+    parser.add_argument("-task", "--task", type=int, default=1, choices=[0, 1, 2, 3, 4], help="Task number")
     parser.add_argument("-dataset", "--dataset", type=str, default="road-r", help="Dataset to use")
 
     parser.add_argument("-dataset_path", "--dataset_path", type=str, default="../../road-dataset", help="Path to dataset")
@@ -26,16 +23,29 @@ def getArgs():
     parser.add_argument("-workers", "--workers", type=int, default=16, help="Number of workers")
 
     parser.add_argument("-optimizer", "--optimizer", type=str, default="Adam", help="Optimizer to use")
-    parser.add_argument("-lr", "--lr", type=float, default=0.01, help="Learning rate")
+    parser.add_argument("-lr", "--lr", type=float, default=0.001, help="Learning rate")
+    parser.add_argument("-lrf", type=float, default=0.01, help="Learning rate final")
     parser.add_argument("-vanilla", "--vanilla", action="store_true", help="Use vanilla YOLO")
     parser.add_argument("-freeze", "--freeze", type=int, default=0, help="Freeze layers")
-    parser.add_argument("-req-type", "--req-type", type=str, default="", help="Requirements Loss type")
+    parser.add_argument("-req-type", "--req-type", type=str, default="product", help="Requirements Loss type")
     parser.add_argument("-no_augment", "--no_augment", action="store_true", help="Use Augmentation")
     parser.add_argument("-max_det", "--max_det", type=int, default=300, help="Maximum detections")
 
-    parser.add_argument("-rl", "--reinforcement-loss", type=bool, default=False, help="Use Reinforcement Learning Loss")
+    parser.add_argument("-rl", "--reinforcement-loss", action="store_true", help="Use Reinforcement Learning Loss")
+    parser.add_argument("-rnd", "--req_num_detect", type=int, default=64, help="Number of required detections")
+    parser.add_argument("-rs", "--req_scheduler", type=float, default=0, help="Scheduler for required detections")
 
     return parser.parse_args()
+
+
+def on_train_epoch_end(trainer):
+    """Callback function to be executed at the end of each training epoch."""
+    # Epochs start at 0
+    hyp = trainer.args
+    # At epoch 2, modify the required loss by a factor of req_scheduler
+    if trainer.epoch >= 2:
+        trainer.args.req_loss = min(hyp.req_loss * hyp.req_scheduler, 100)
+
 
 def main():
     args = getArgs()
@@ -67,7 +77,7 @@ def main():
     try:
         if not args.no_augment:
             trainer = MOD_YOLOTrainer(overrides={"device": args.cuda, "project": f"../runs/nparam/{args.req_type}_e{args.max_epochs}_rl{args.req_loss}", "data":f"../config/dataset_task{args.task}.yaml", "task":"detect", "model":f"../models/{args.basemodel}.pt",
-                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 24, "max_det": args.max_det, "amp": True, "cache": False})
+                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 24, "max_det": args.max_det, "amp": True, "cache": False, "lrf": args.lrf, "req_num_detect": args.req_num_detect, "req_scheduler": args.req_scheduler})
 
     except Exception as e:
         from ultralytics.utils import DEFAULT_CFG_PATH
@@ -77,6 +87,7 @@ def main():
         print("Please run the script again")
         exit()
 
+    trainer.add_callback('on_train_epoch_end', on_train_epoch_end)
     trainer.train()
 
     if args.reinforcement_loss:

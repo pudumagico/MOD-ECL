@@ -6,7 +6,6 @@ import torch.nn as nn
 
 from ultralytics.utils.ops import xywh2xyxy
 from ultralytics.utils.tal import TaskAlignedAssigner, dist2bbox, make_anchors
-from ultralytics.utils.loss import BboxLoss
 from ultralytics.utils.metrics import bbox_iou
 
 import numpy as np
@@ -65,7 +64,7 @@ class MOD_YOLOLoss:
         self.use_dfl = m.reg_max > 1
 
         self.assigner = MOD_YOLOTaskAlignedAssigner(topk=10, num_classes=self.nc, alpha=0.5, beta=6.0)
-        self.bbox_loss = BboxLoss(m.reg_max - 1, use_dfl=self.use_dfl).to(device)
+        self.bbox_loss = BboxLoss(m.reg_max).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
         self.constraints = torch.from_numpy(np.load(const_path)).to_sparse()
         self.t_norm_usage = {key: 0 for key in t_norm_values.keys()}
@@ -155,12 +154,14 @@ class MOD_YOLOLoss:
             max_pred = pred_const[:, :, :10].max(-1)[0]
             
             max_pred_sorted = torch.sort(max_pred, descending=True, dim=-1)
+            
+            if self.hyp.req_num_detect == -1:
+                pred_const = torch.gather(pred_const, 1, max_pred_sorted[1].unsqueeze(-1).expand(-1, -1, pred_const.shape[-1]))
+                pred_const = pred_const[max_pred_sorted[0] > 0.5]
+            else:
+                pred_const = torch.gather(pred_const, 1, max_pred_sorted[1][:, :self.hyp.req_num_detect].unsqueeze(-1).expand(-1, -1, pred_const.shape[-1]))
+                pred_const = pred_const[max_pred_sorted[0][:, :self.hyp.req_num_detect] > 0.5]
 
-            pred_const = torch.gather(pred_const, 1, max_pred_sorted[1][:, :64].unsqueeze(-1).expand(-1, -1, pred_const.shape[-1]))
-            # pred_const = torch.gather(pred_const, 1, max_pred_sorted[1].unsqueeze(-1).expand(-1, -1, pred_const.shape[-1]))
-
-            pred_const = pred_const[max_pred_sorted[0][:, :64] > 0.5]
-            # pred_const = pred_const[max_pred_sorted[0] > 0.5]
             ############################################
             
             if pred_const.shape[0] > 0:
@@ -522,3 +523,59 @@ class MOD_YOLOTaskAlignedAssigner(nn.Module):
 def int2binary(x, bits):
     mask = 2**torch.arange(bits).to(x.device, x.dtype)
     return x.unsqueeze(-1).bitwise_and(mask).ne(0).byte()
+
+
+
+from ultralytics.utils.tal import bbox2dist
+import torch.nn.functional as F
+
+
+class BboxLoss(nn.Module):
+    """Criterion class for computing training losses during training."""
+
+    def __init__(self, reg_max=16):
+        """Initialize the BboxLoss module with regularization maximum and DFL settings."""
+        super().__init__()
+        self.dfl_loss = DFLoss(reg_max) if reg_max > 1 else None
+
+    def forward(self, pred_dist, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask):
+        """IoU loss."""
+        weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
+        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
+        loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
+
+        # DFL loss
+        if self.dfl_loss:
+            target_ltrb = bbox2dist(anchor_points, target_bboxes, self.dfl_loss.reg_max - 1)
+            loss_dfl = self.dfl_loss(pred_dist[fg_mask].view(-1, self.dfl_loss.reg_max), target_ltrb[fg_mask]) * weight
+            loss_dfl = loss_dfl.sum() / target_scores_sum
+        else:
+            loss_dfl = torch.tensor(0.0).to(pred_dist.device)
+
+        return loss_iou, loss_dfl
+
+
+class DFLoss(nn.Module):
+    """Criterion class for computing DFL losses during training."""
+
+    def __init__(self, reg_max=16) -> None:
+        """Initialize the DFL module."""
+        super().__init__()
+        self.reg_max = reg_max
+
+    def __call__(self, pred_dist, target):
+        """
+        Return sum of left and right DFL losses.
+
+        Distribution Focal Loss (DFL) proposed in Generalized Focal Loss
+        https://ieeexplore.ieee.org/document/9792391
+        """
+        target = target.clamp_(0, self.reg_max - 1 - 0.01)
+        tl = target.long()  # target left
+        tr = tl + 1  # target right
+        wl = tr - target  # weight left
+        wr = 1 - wl  # weight right
+        return (
+            F.cross_entropy(pred_dist, tl.view(-1), reduction="none").view(tl.shape) * wl
+            + F.cross_entropy(pred_dist, tr.view(-1), reduction="none").view(tl.shape) * wr
+        ).mean(-1, keepdim=True)
