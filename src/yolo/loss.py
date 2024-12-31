@@ -253,6 +253,10 @@ class MOD_YOLOLoss:
                     loss_const[:,req_id] = torch.min(fuzzy_values, axis=-1)[0]
                 loss[4] = loss_const.sum() / (loss_const.shape[0] * loss_const.shape[1])
                 loss[5] = (loss_const.max(-1)[0]).sum() / (loss_const.shape[0])
+                # Number of boxes that are above the threshold of 0.3 divided by the total number of boxes
+                loss[6] = max_pred_const.sum().item() / (pred_const.shape[0] * pred_const.shape[1])
+                # Number of labels that are above the threshold of 0.3 divided by the total number of labels
+                loss[7] = (max_pred_const.sum().float() / max_pred_const.shape[0]).mean().item()
 
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
