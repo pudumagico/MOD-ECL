@@ -74,9 +74,22 @@ def main():
         if not dataset.checkExists(folder_name) or args.remake:
             dataset.generateYOLO(dataset.getLabels(args.task), folder_name, seed=args.seed, val_split=args.val_split)
 
+    folder_args = []
+    folder_args.append(f"task{args.task}")
+    folder_args.append(f"e{args.max_epochs}")
+    folder_args.append(f"reqloss{args.req_loss}")
+    if args.reinforcement_loss:
+        folder_args.append("rl")
+    elif args.req_loss != 0:
+        folder_args.append(args.req_type)
+    else:
+        folder_args.append("vanilla")
+    
+    folder_args = "_".join(folder_args)
+
     try:
         if not args.no_augment:
-            trainer = MOD_YOLOTrainer(overrides={"device": args.cuda, "project": f"../runs/nparam/{args.req_type}_e{args.max_epochs}_rl{args.req_loss}", "data":f"../config/dataset_task{args.task}.yaml", "task":"detect", "model":f"../models/{args.basemodel}.pt",
+            trainer = MOD_YOLOTrainer(overrides={"device": args.cuda, "project": f"../runs/nparam/{folder_args}", "data":f"../config/dataset_task{args.task}.yaml", "task":"detect", "model":f"../models/{args.basemodel}.pt",
                                                 "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 24, "max_det": args.max_det, "amp": True, "cache": False, "lrf": args.lrf, "req_num_detect": args.req_num_detect, "req_scheduler": args.req_scheduler})
 
     except Exception as e:
