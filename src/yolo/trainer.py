@@ -109,7 +109,7 @@ class MOD_YOLOTrainer(BaseTrainer):
 
     def get_validator(self):
         """Returns a DetectionValidator for YOLO model validation."""
-        self.loss_names = "box_loss", "cls_loss", "dfl_loss", "req_loss", "c_violation(nc)", "c_violation(n)"
+        self.loss_names = "box_loss", "cls_loss", "dfl_loss", "req_loss", "c_violation(nc)", "c_violation(n)", "box_ratio", "label_ratio"
         return MOD_YOLODetectionValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
@@ -163,8 +163,8 @@ class MOD_YOLOTrainer(BaseTrainer):
         plot_results(file=self.csv, on_plot=self.on_plot)  # save results.png
         if self.args.reinforcement_loss:
             with open(f"{self.save_dir}/t_norm_usage.txt", 'w+') as t_norm_usage_file: 
-                # t_norm_usage_file.write(json.dumps(self.model.criterion.t_norm_usage))
-                t_norm_usage_file.write(json.dumps(self.model.module.criterion.t_norm_usage))
+                t_norm_usage_file.write(json.dumps(self.model.criterion.t_norm_usage))
+                # t_norm_usage_file.write(json.dumps(self.model.module.criterion.t_norm_usage))
                 
     def plot_training_labels(self):
         """Create a labeled training plot of the YOLO model."""

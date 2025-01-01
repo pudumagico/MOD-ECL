@@ -30,6 +30,20 @@ def apply_tnorm_iterative(tnorm, values):
 
     return result
 
+def apply_tnorm_iterative2(tnorm, values):
+    if values.ndim < 1:
+        raise ValueError("Input values must have at least one dimension.")
+
+    # Initialize the result with the first element along the last dimension
+    result = values.select(dim=-1, index=0)
+
+    # Iteratively apply the t-norm across the remaining elements
+    for i in range(1, values.shape[-1]):
+        next_values = values.select(dim=-1, index=i)
+        result = tnorm(result, next_values)
+
+    return result
+
 # Fast, multi-variable version of the t-norms
 
 
@@ -70,6 +84,10 @@ def drastic_tnorm(a, b):
     else:
         return torch.zeros_like(a)
 
+def drastic_tnorm_batch(a, b):
+    none_one = (a == 1) | (b == 1)
+    return torch.where(none_one, torch.min(a, b), torch.zeros_like(a))
+
 
 def hamacherprod_tnorm(a, b):
     if a == 0 and b == 0:
@@ -77,11 +95,17 @@ def hamacherprod_tnorm(a, b):
     return (a * b) / (a + b - a * b)
 
 
+def hamacherprod_tnorm_batch(a, b):
+    return torch.where(a + b == 0, torch.zeros_like(a), (a * b) / (a + b - a * b))
+
 def nilpotentmin_tnorm(a, b):
     if a + b > 1:
         return torch.min(a, b)
     return torch.zeros_like(a)
 
+
+def nilpotentmin_tnorm_batch(a, b):
+    return torch.where(a + b > 1, torch.min(a, b), torch.zeros_like(a))
 
 def schweizer_sklar_tnorm(a, b, p=2):
     if p == 0:
@@ -90,6 +114,13 @@ def schweizer_sklar_tnorm(a, b, p=2):
     if inner_value < 0:
         inner_value = torch.zeros_like(a)
     return torch.max(torch.zeros_like(a), inner_value ** (1 / p))
+
+def schweizer_sklar_tnorm_batch(a, b, p=2):
+    if p == 0:
+        return min_tnorm(a, b)
+    inner_value = a**p + b**p - 1
+    none_zero = inner_value >= 0
+    return torch.where(none_zero, inner_value ** (1 / p), torch.zeros_like(a))
 
 
 def hamacher_tnorm(a, b, p=2):
@@ -120,11 +151,22 @@ def dombi_tnorm(a, b, p=1):
     return (1 + ((1 - a) / a) ** p + ((1 - b) / b) ** p) ** (-1 / p)
 
 
+def dombi_tnorm_batch(a, b, p=1):
+    if p == 0:
+        return drastic_tnorm_batch(a, b)
+    none_zero = (a != 0) & (b != 0)
+    return torch.where(none_zero, (1 + ((1 - a) / a) ** p + ((1 - b) / b) ** p) ** (-1 / p), torch.zeros_like(a))
+
 def aczel_alsina_tnorm(a, b, p=1):
     if p == 0 or a == 0 or b == 0:
         return drastic_tnorm(a, b)
     return torch.exp(-((torch.abs(-torch.log(a)) ** p + torch.abs(-torch.log(b)) ** p) ** (1 / p)))
 
+def aczel_alsina_tnorm_batch(a, b, p=1):
+    if p == 0:
+        return drastic_tnorm_batch(a, b)
+    none_zero = (a != 0) & (b != 0)
+    return torch.where(none_zero, torch.exp(-((torch.abs(-torch.log(a)) ** p + torch.abs(-torch.log(b)) ** p) ** (1 / p))), torch.zeros_like(a))
 
 def plot_2variables(function, resolution=100):
 
@@ -334,16 +376,30 @@ if False:
     tnorm1, tnorm1_fast = min_tnorm, min_tnorm_tensor
     tnorm1, tnorm1_fast = product_tnorm, product_tnorm_tensor
     tnorm1, tnorm1_fast = lukasiewicz_tnorm, lukasiewicz_tnorm_tensor
-    tnorm1, tnorm1_fast = drastic_tnorm, drastic_tnorm_tensor
+    tnorm1, tnorm1_fast = drastic_tnorm_batch, drastic_tnorm_tensor
     # tnorm1, tnorm1_fast = hamacherprod_tnorm, hamacherprod_tnorm_tensor
     # tnorm1, tnorm1_fast = nilpotentmin_tnorm, nilpotentmin_tnorm_tensor
+
+    tnorm1, tnorm1_batch = dombi_tnorm, dombi_tnorm_batch
+    tnorm1, tnorm1_batch = aczel_alsina_tnorm, aczel_alsina_tnorm_batch
+    tnorm1, tnorm1_batch = sugeno_weber_tnorm, sugeno_weber_tnorm
+    tnorm1, tnorm1_batch = yager_tnorm, yager_tnorm
+    tnorm1, tnorm1_batch = frank_tnorm, frank_tnorm
+    tnorm1, tnorm1_batch = hamacher_tnorm, hamacher_tnorm
+    tnorm1, tnorm1_batch = schweizer_sklar_tnorm, schweizer_sklar_tnorm_batch
+    tnorm1, tnorm1_batch = drastic_tnorm, drastic_tnorm_batch
+    tnorm1, tnorm1_batch = nilpotentmin_tnorm, nilpotentmin_tnorm_batch
+    tnorm1, tnorm1_batch = hamacherprod_tnorm, hamacherprod_tnorm_batch
+
     print("Input Tensor:")
     print(input_tensor)
     print("\nResult with Iterative T-norm:")
+    result = apply_tnorm_iterative2(tnorm1_batch, input_tensor)
+    print(result)
     result = apply_tnorm_iterative(tnorm1, input_tensor)
     print(result)
 
-    traverse_computation_graph(result)
+    # traverse_computation_graph(result)
 
     print("\nResult with Fast T-norm:")
     result = tnorm1_fast(input_tensor)
