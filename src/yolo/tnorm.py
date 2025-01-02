@@ -45,8 +45,6 @@ def apply_tnorm_iterative2(tnorm, values):
     return result
 
 # Fast, multi-variable version of the t-norms
-
-
 def min_tnorm_tensor(fv):
     return torch.min(fv, axis=-1)[0]
 
@@ -168,6 +166,141 @@ def aczel_alsina_tnorm_batch(a, b, p=1):
     none_zero = (a != 0) & (b != 0)
     return torch.where(none_zero, torch.exp(-((torch.abs(-torch.log(a)) ** p + torch.abs(-torch.log(b)) ** p) ** (1 / p))), torch.zeros_like(a))
 
+def drastic_tnorm_tensor(fv):
+    # The drastic t-norm operates on all elements along the last dimension.
+    # If any element is 1, return the minimum of the rest.
+    # If no element is 1, return 0.
+
+    # Compute the max value along the last dimension.
+    max_values = torch.max(fv, dim=-1)[0]
+    
+    # Apply the drastic t-norm logic:
+    drastic_result = torch.where(
+        max_values == 1, 
+        torch.min(fv, dim=-1)[0],  # If any value is 1, return the minimum of the last dimension
+        torch.zeros(fv.size()[:-1], device=fv.device)  # Otherwise, return 0, collapsed over the last dimension
+    )
+    return drastic_result
+
+def hamacherprod_tnorm_tensor(fv):
+    # The Hamacher product t-norm operates on all pairs along the last dimension.
+    # Compute the generalized Hamacher product for the last dimension.
+    sum_fv = torch.sum(fv, dim=-1)
+    prod_fv = torch.prod(fv, dim=-1)
+    denominator = sum_fv - prod_fv
+
+    return torch.where(
+        denominator == 0, 
+        torch.zeros_like(denominator),  # If denominator is 0, return 0
+        prod_fv / denominator  # Otherwise, compute the t-norm
+    )
+
+def nilpotentmin_tnorm_tensor(fv):
+    # Compute pairwise sums and check the condition along the last dimension
+    pairwise_sums = torch.sum(fv, dim=-1)  # Sum of all values along the last dimension
+    min_values = torch.min(fv, dim=-1)[0]  # Minimum value along the last dimension
+    
+    # Apply the nilpotent minimum condition
+    return torch.where(pairwise_sums > 1, min_values, torch.zeros_like(min_values))
+
+def schweizer_sklar_tnorm_tensor(fv, p=2):
+    # Handle the case where p == 0 by applying the min t-norm
+    if p == 0:
+        return torch.min(fv, dim=-1)[0]
+
+    # Compute the Schweizer-Sklar t-norm for the given tensor
+    pth_powers = fv**p
+    inner_value = torch.sum(pth_powers, dim=-1) - fv.size(-1)  # Sum a^p + b^p - 1 along the last dimension
+    
+    # Apply max(0, inner_value) and take the p-th root
+    return torch.pow(torch.maximum(inner_value, torch.zeros_like(inner_value)), 1 / p)
+
+def hamacher_tnorm_tensor(fv, p=2):
+    # Compute pairwise sum, product, and the Hamacher t-norm for the tensor along the last dimension
+    sum_fv = torch.sum(fv, dim=-1)
+    prod_fv = torch.prod(fv, dim=-1)
+    
+    # Calculate the denominator (p + (1 - p) * (sum - product))
+    denominator = p + (1 - p) * (sum_fv - prod_fv)
+    
+    # Apply the Hamacher t-norm formula
+    return prod_fv / denominator
+
+def frank_tnorm_tensor(fv, p=2):
+    if p == 1:
+        # Use the product t-norm if p == 1
+        return product_tnorm_tensor(fv)
+    
+    # Compute Frank t-norm for each pair of values in the last dimension
+    p_a = torch.pow(p, fv)
+    frank_values = (p_a - 1) * (torch.pow(p, fv) - 1) / (p - 1)
+    
+    # Apply the Frank T-norm formula
+    result = torch.log(1 + frank_values) / torch.log(torch.tensor(p, device=fv.device))
+    
+    # Reduce across the last dimension to match the iterative output
+    result = torch.prod(result, dim=-1)
+    
+    return result
+
+import torch
+
+def yager_tnorm_tensor(fv, p=2):
+    if p == 1:
+        # Use Lukasiewicz t-norm if p == 1
+        return torch.relu(torch.sum(fv, dim=-1) - fv.size(-1) + 1)
+
+    # Compute the Yager t-norm for each pair of values in the last dimension
+    one_minus_fv = 1 - fv
+    pth_powers = torch.pow(one_minus_fv, p)
+    inner_value = torch.sum(pth_powers, dim=-1)
+
+    # Apply the Yager t-norm formula
+    return torch.maximum(torch.zeros_like(inner_value), 1 - torch.pow(inner_value, 1 / p))
+
+
+def sugeno_weber_tnorm_tensor(fv, p=1):
+    # Compute the Sugeno-Weber t-norm for each pair of values in the last dimension
+    sum_fv = torch.sum(fv, dim=-1)
+    prod_fv = torch.prod(fv, dim=-1)
+    
+    # Apply the Sugeno-Weber t-norm formula
+    return torch.maximum(torch.zeros_like(sum_fv), (sum_fv - 1 + p * prod_fv) / (1 + p))
+
+def dombi_tnorm_tensor(fv, p=1):
+    # Handle the case where any value is 0 (resulting in 0)
+    zero_mask = (fv == 0)
+    if torch.any(zero_mask):
+        return torch.zeros_like(fv[..., 0])
+
+    # Handle the case where p == 0 (use drastic t-norm)
+    if p == 0:
+        return drastic_tnorm_tensor(fv)
+
+    # Compute the Dombi t-norm for each pair of values in the last dimension
+    one_minus_fv = 1 - fv
+    inv_fv = one_minus_fv / fv
+    dombi_values = (1 + torch.pow(inv_fv, p)) ** (-1 / p)
+
+    # Reduce across the last dimension to match the iterative output
+    result = torch.prod(dombi_values, dim=-1)
+
+    return result
+
+def aczel_alsina_tnorm_tensor(fv, p=1):
+    # Handle the case where p == 0 or any value is 0 (use drastic t-norm)
+    zero_mask = (fv == 0)
+    
+    if torch.any(zero_mask) or p == 0:
+        return drastic_tnorm_tensor(fv)
+    
+    # Compute the Aczel-Alcina t-norm for each pair of values in the last dimension
+    log_fv = -torch.log(fv.abs())
+    aczel_alsina_values = torch.exp(-torch.pow(torch.abs(log_fv), p).sum(dim=-1) ** (1 / p))
+    
+    return aczel_alsina_values
+
+
 def plot_2variables(function, resolution=100):
 
     x = np.linspace(0, 1, resolution)
@@ -257,54 +390,179 @@ def plot_3variables(function, resolution=30):
 
 
 if DEBUG:
+    for i in range(1):
+        B, N, V = 4, 4, 4  # Batch size and number of values
+        fuzzy_tensor = torch.rand(B, V)
+        print(fuzzy_tensor)
+        # Random tensor with values in [0, 1]
+        # fuzzy_tensor = torch.tensor([[1.0, 0.5, 0.2, 0.5], [0.7, 1.0, 0.8, 0.1], [1,1,1,0.5], [0.6, 0.6, 0.6, 0.6]], device="cuda:0", requires_grad=True)
+        # fuzzy_tensor = fuzzy_tensor * 1
+        # result_minimum = apply_tnorm_iterative(min_tnorm, fuzzy_tensor)
+        # result_prod = apply_tnorm_iterative(product_tnorm, fuzzy_tensor)
+        # result_luk = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_tensor)
+        # result_dras = apply_tnorm_iterative(drastic_tnorm, fuzzy_tensor)
+        # result_nil = apply_tnorm_iterative(nilpotentmin_tnorm, fuzzy_tensor)
+        # result_hamprod = apply_tnorm_iterative(hamacherprod_tnorm, fuzzy_tensor)
 
-    B, N, V = 3, 2, 2  # Batch size and number of values
-    fuzzy_tensor = torch.rand(B, N, V)  # Random tensor with values in [0, 1]
+        # print("Input Tensor:")
+        # print(fuzzy_tensor)
+        # print("\nResult with Minimum T-norm:")
+        # print(result_minimum)
+        # print("\nResult with Product T-norm:")
+        # print(result_prod)
+        # print("\nResult with Luk T-norm:")
+        # print(result_luk)
+        # print("\nResult with nil T-norm:")
+        # print(result_nil)
+        # print("\nResult with hamprod T-norm:")
+        # print(result_hamprod)
+        # print("\nResult with drastic T-norm:")
+        # print(result_dras)
 
-    result_minimum = apply_tnorm_iterative(min_tnorm, fuzzy_tensor)
-    result_prod = apply_tnorm_iterative(product_tnorm, fuzzy_tensor)
-    result_luk = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_tensor)
-    result_dras = apply_tnorm_iterative(drastic_tnorm, fuzzy_tensor)
-    result_nil = apply_tnorm_iterative(nilpotentmin_tnorm, fuzzy_tensor)
-    result_hamprod = apply_tnorm_iterative(hamacherprod_tnorm, fuzzy_tensor)
+        # result_minimum = apply_tnorm_iterative(min_tnorm, fuzzy_tensor)
+        # result_prod = apply_tnorm_iterative(product_tnorm, fuzzy_tensor)
+        # result_luk = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_tensor)
+        # result_dras = apply_tnorm_iterative(drastic_tnorm, fuzzy_tensor)
+        # result_nil = apply_tnorm_iterative(nilpotentmin_tnorm, fuzzy_tensor)
+        result_hamprod_new = apply_tnorm_iterative2(hamacherprod_tnorm_batch, fuzzy_tensor)
+        result_hamprod_old = apply_tnorm_iterative(hamacherprod_tnorm, fuzzy_tensor)
+        
+        print('hamacherprod_tnorm_batch', result_hamprod_new)
+        print('hamacherprod_tnorm', result_hamprod_old)
 
-    print("Input Tensor:")
-    print(fuzzy_tensor)
-    print("\nResult with Minimum T-norm:")
-    print(result_minimum)
-    print("\nResult with Product T-norm:")
-    print(result_prod)
-    print("\nResult with Luk T-norm:")
-    print(result_luk)
-    print("\nResult with nil T-norm:")
-    print(result_nil)
-    print("\nResult with hamprod T-norm:")
-    print(result_hamprod)
-    print("\nResult with drastic T-norm:")
-    print(result_dras)
+        # print("Input Tensor:")
+        # print(fuzzy_tensor)
+        # print("\nResult with Minimum T-norm:")
+        # print(result_minimum)
+        # print("\nResult with Product T-norm:")
+        # print(result_prod)
+        # print("\nResult with Luk T-norm:")
+        # print(result_luk)
+        # print("\nResult with nil T-norm:")
+        # print(result_nil)
+        # print("\nResult with hamprod T-norm:")
+        # print(result_hamprod)
+        # print("\nResult with drastic T-norm:")
+        # print(result_dras)
 
-    result_minimum = apply_tnorm_iterative(min_tnorm, fuzzy_tensor)
-    result_prod = apply_tnorm_iterative(product_tnorm, fuzzy_tensor)
-    result_luk = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_tensor)
-    result_dras = apply_tnorm_iterative(drastic_tnorm, fuzzy_tensor)
-    result_nil = apply_tnorm_iterative(nilpotentmin_tnorm, fuzzy_tensor)
-    result_hamprod = apply_tnorm_iterative(hamacherprod_tnorm, fuzzy_tensor)
 
-    print("Input Tensor:")
-    print(fuzzy_tensor)
-    print("\nResult with Minimum T-norm:")
-    print(result_minimum)
-    print("\nResult with Product T-norm:")
-    print(result_prod)
-    print("\nResult with Luk T-norm:")
-    print(result_luk)
-    print("\nResult with nil T-norm:")
-    print(result_nil)
-    print("\nResult with hamprod T-norm:")
-    print(result_hamprod)
-    print("\nResult with drastic T-norm:")
-    print(result_dras)
 
+    
+        
+        # result_minimum_tensor = min_tnorm_tensor(fuzzy_tensor)
+        # result_prod_tensor = product_tnorm_tensor(fuzzy_tensor)
+        # result_luk_tensor = lukasiewicz_tnorm_tensor(fuzzy_tensor)
+        # result_dras_tensor = drastic_tnorm_tensor(fuzzy_tensor)
+        # result_nil_tensor = nilpotentmin_tnorm_tensor(fuzzy_tensor)
+        result_hamprod_tensor = hamacherprod_tnorm_tensor(fuzzy_tensor)
+        print('hamacherprod_tnorm_tensor', result_hamprod_tensor)
+
+        # print("Input Tensor:")
+        # print(fuzzy_tensor)
+        # print("\nResult with Minimum T-norm:")
+        # print(result_minimum_tensor)
+        # print("\nResult with Product T-norm:")
+        # print(result_prod_tensor)
+        # print("\nResult with Luk T-norm:")
+        # print(result_luk_tensor)
+        # print("\nResult with nil T-norm:")
+        # print(result_nil_tensor)
+        # print("\nResult with hamprod T-norm:")
+        # print(result_hamprod_tensor)
+        # print("\nResult with drastic T-norm:")
+        # print(result_dras_tensor)
+        
+        # print("EQUALITY CHECK")
+        
+
+        # print("\nResult with Minimum T-norm:")
+        # print(result_minimum_tensor == result_minimum)
+        # print("\nResult with Product T-norm:")
+        # print(result_prod_tensor == result_prod)
+        # print("\nResult with Luk T-norm:")
+        # comparison = np.allclose(result_luk_tensor.cpu().detach().numpy(), result_luk.cpu().detach().numpy())
+        # print(comparison)
+        # print("\nResult with nil T-norm:")
+        # print(result_nil_tensor == result_nil)
+        print("\nResult with hamprod T-norm:")
+        print(result_hamprod_tensor == result_hamprod_new)
+        print(result_hamprod_tensor == result_hamprod_old)
+        print(result_hamprod_new == result_hamprod_old)
+        # print("\nResult with drastic T-norm:")
+        # print(result_dras_tensor == result_dras)
+        
+        
+        
+        # # Schweitzer-Sklar T-norm
+        # result_schweizer_sklar = apply_tnorm_iterative(lambda a, b: schweizer_sklar_tnorm(a, b, p=2), fuzzy_tensor)
+        # result_schweizer_sklar_tensor = schweizer_sklar_tnorm_tensor(fuzzy_tensor, p=2)
+        # print("\nResult with Schweizer-Sklar T-norm (Iterative):")
+        # print(result_schweizer_sklar)
+        # print("\nResult with Schweizer-Sklar T-norm (Tensor):")
+        # print(result_schweizer_sklar_tensor)
+        # print("\nEquality Check for Schweizer-Sklar T-norm:")
+        # print(np.allclose(result_schweizer_sklar_tensor.cpu().detach().numpy(), result_schweizer_sklar.cpu().detach().numpy()))
+
+        # # Hamacher T-norm
+        # result_hamacher = apply_tnorm_iterative(lambda a, b: hamacher_tnorm(a, b, p=2), fuzzy_tensor)
+        # result_hamacher_tensor = hamacher_tnorm_tensor(fuzzy_tensor, p=2)
+        # print("\nResult with Hamacher T-norm (Iterative):")
+        # print(result_hamacher)
+        # print("\nResult with Hamacher T-norm (Tensor):")
+        # print(result_hamacher_tensor)
+        # print("\nEquality Check for Hamacher T-norm:")
+        # print(np.allclose(result_hamacher_tensor.cpu().detach().numpy(), result_hamacher.cpu().detach().numpy()))
+
+        # # Frank T-norm
+        # result_frank = apply_tnorm_iterative(lambda a, b: frank_tnorm(a, b, p=2), fuzzy_tensor)
+        # result_frank_tensor = frank_tnorm_tensor(fuzzy_tensor, p=2)
+        # print("\nResult with Frank T-norm (Iterative):")
+        # print(result_frank)
+        # print("\nResult with Frank T-norm (Tensor):")
+        # print(result_frank_tensor)
+        # print("\nEquality Check for Frank T-norm:")
+        # print(result_frank_tensor == result_frank)
+
+        # # Yager T-norm
+        # result_yager = apply_tnorm_iterative(lambda a, b: yager_tnorm(a, b, p=2), fuzzy_tensor)
+        # result_yager_tensor = yager_tnorm_tensor(fuzzy_tensor, p=2)
+        # print("\nResult with Yager T-norm (Iterative):")
+        # print(result_yager)
+        # print("\nResult with Yager T-norm (Tensor):")
+        # print(result_yager_tensor)
+        # print("\nEquality Check for Yager T-norm:")
+        # print(np.allclose(result_yager_tensor.cpu().detach().numpy(), result_yager.cpu().detach().numpy()))
+
+        # # Sugeno-Weber T-norm
+        # result_sugeno_weber = apply_tnorm_iterative(lambda a, b: sugeno_weber_tnorm(a, b, p=1), fuzzy_tensor)
+        # result_sugeno_weber_tensor = sugeno_weber_tnorm_tensor(fuzzy_tensor, p=1)
+        # print("\nResult with Sugeno-Weber T-norm (Iterative):")
+        # print(result_sugeno_weber)
+        # print("\nResult with Sugeno-Weber T-norm (Tensor):")
+        # print(result_sugeno_weber_tensor)
+        # print("\nEquality Check for Sugeno-Weber T-norm:")
+        # print(np.allclose(result_sugeno_weber_tensor.cpu().detach().numpy(), result_sugeno_weber.cpu().detach().numpy()))
+
+        # # Dombi T-norm
+        # result_dombi = apply_tnorm_iterative(lambda a, b: dombi_tnorm(a, b, p=1), fuzzy_tensor)
+        # result_dombi_tensor = dombi_tnorm_tensor(fuzzy_tensor, p=1)
+        # print("\nResult with Dombi T-norm (Iterative):")
+        # print(result_dombi)
+        # print("\nResult with Dombi T-norm (Tensor):")
+        # print(result_dombi_tensor)
+        # print("\nEquality Check for Dombi T-norm:")
+        # print(result_dombi_tensor == result_dombi)
+
+        # # Aczel-Alsina T-norm
+        # result_aczel_alsina = apply_tnorm_iterative(lambda a, b: aczel_alsina_tnorm(a, b, p=1), fuzzy_tensor)
+        # result_aczel_alsina_tensor = aczel_alsina_tnorm_tensor(fuzzy_tensor, p=1)
+        # print("\nResult with Aczel-Alsina T-norm (Iterative):")
+        # print(result_aczel_alsina)
+        # print("\nResult with Aczel-Alsina T-norm (Tensor):")
+        # print(result_aczel_alsina_tensor)
+        # print("\nEquality Check for Aczel-Alsina T-norm:")
+        # print(np.allclose(result_aczel_alsina_tensor.cpu().detach().numpy(), result_aczel_alsina.cpu().detach().numpy()))
+    
     # plot_2variables(product_tnorm)
     # plot_2variables(min_tnorm)
     # plot_2variables(lukasiewicz_tnorm)
@@ -334,8 +592,6 @@ if DEBUG:
     # plot_3variables(dombi_tnorm)
     # plot_3variables(schweizer_sklar_tnorm)
     # plot_3variables(hamacher_tnorm)
-
-
 
 
 # Added for checking purposes
@@ -373,22 +629,22 @@ def traverse_computation_graph_from_grad_fn(grad_fn, indent=0):
 if False:
     input_tensor = torch.tensor([[1.0, 0.5, 0.2, 0.5], [0.7, 1.0, 0.8, 0.1], [1,1,1,0.5], [0.6, 0.6, 0.6, 0.6]], device="cuda:0", requires_grad=True)
     input_tensor = input_tensor * 1
-    tnorm1, tnorm1_fast = min_tnorm, min_tnorm_tensor
-    tnorm1, tnorm1_fast = product_tnorm, product_tnorm_tensor
-    tnorm1, tnorm1_fast = lukasiewicz_tnorm, lukasiewicz_tnorm_tensor
-    tnorm1, tnorm1_fast = drastic_tnorm_batch, drastic_tnorm_tensor
-    # tnorm1, tnorm1_fast = hamacherprod_tnorm, hamacherprod_tnorm_tensor
+    # tnorm1, tnorm1_fast = min_tnorm, min_tnorm_tensor
+    # tnorm1, tnorm1_fast = product_tnorm, product_tnorm_tensor
+    # tnorm1, tnorm1_fast = lukasiewicz_tnorm, lukasiewicz_tnorm_tensor
+    # tnorm1, tnorm1_fast = drastic_tnorm_batch, drastic_tnorm_tensor
+    tnorm1, tnorm1_fast = hamacherprod_tnorm, hamacherprod_tnorm_tensor
     # tnorm1, tnorm1_fast = nilpotentmin_tnorm, nilpotentmin_tnorm_tensor
 
-    tnorm1, tnorm1_batch = dombi_tnorm, dombi_tnorm_batch
-    tnorm1, tnorm1_batch = aczel_alsina_tnorm, aczel_alsina_tnorm_batch
-    tnorm1, tnorm1_batch = sugeno_weber_tnorm, sugeno_weber_tnorm
-    tnorm1, tnorm1_batch = yager_tnorm, yager_tnorm
-    tnorm1, tnorm1_batch = frank_tnorm, frank_tnorm
-    tnorm1, tnorm1_batch = hamacher_tnorm, hamacher_tnorm
-    tnorm1, tnorm1_batch = schweizer_sklar_tnorm, schweizer_sklar_tnorm_batch
-    tnorm1, tnorm1_batch = drastic_tnorm, drastic_tnorm_batch
-    tnorm1, tnorm1_batch = nilpotentmin_tnorm, nilpotentmin_tnorm_batch
+    # tnorm1, tnorm1_batch = dombi_tnorm, dombi_tnorm_batch
+    # tnorm1, tnorm1_batch = aczel_alsina_tnorm, aczel_alsina_tnorm_batch
+    # tnorm1, tnorm1_batch = sugeno_weber_tnorm, sugeno_weber_tnorm
+    # tnorm1, tnorm1_batch = yager_tnorm, yager_tnorm
+    # tnorm1, tnorm1_batch = frank_tnorm, frank_tnorm
+    # tnorm1, tnorm1_batch = hamacher_tnorm, hamacher_tnorm
+    # tnorm1, tnorm1_batch = schweizer_sklar_tnorm, schweizer_sklar_tnorm_batch
+    # tnorm1, tnorm1_batch = drastic_tnorm, drastic_tnorm_batch
+    # tnorm1, tnorm1_batch = nilpotentmin_tnorm, nilpotentmin_tnorm_batch
     tnorm1, tnorm1_batch = hamacherprod_tnorm, hamacherprod_tnorm_batch
 
     print("Input Tensor:")
@@ -404,3 +660,5 @@ if False:
     print("\nResult with Fast T-norm:")
     result = tnorm1_fast(input_tensor)
     print(result)
+    # traverse_computation_graph(result)
+    # traverse_computation_graph_from_grad_fn(result.grad_fn)

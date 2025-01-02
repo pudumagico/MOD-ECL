@@ -35,11 +35,11 @@ previous_losses = {key: float('inf') for key in t_norm_values.keys()}
 learning_rate = 0.1
 
 # Exploration probability
-epsilon = 0.1
+beta = 0.1
 
 # Function to select t-norm based on values with ε-greedy exploration
 def select_t_norm():
-    if random.random() < epsilon:
+    if random.random() < beta:
         return random.choice(list(t_norm_values.keys()))
     else:
         return max(t_norm_values, key=t_norm_values.get)
@@ -174,12 +174,11 @@ class MOD_YOLOLoss:
 
                 
                 self.t_norm_usage[self.hyp.req_type] += 1
-                epsilon = + 1e-9
+
                 for req_id in range(self.constraints.shape[0]):
 
                     req_ind = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
                     fuzzy_values = 1 - pred_const[:,req_ind]
-                    
                     if self.hyp.req_type == "lukasiewicz":
                         loss_const[:,req_id] = lukasiewicz_tnorm_tensor(fuzzy_values)
                         # loss_const[:,req_id] = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_values)
@@ -194,6 +193,7 @@ class MOD_YOLOLoss:
                     elif self.hyp.req_type == "nilpotent_minimum":
                         loss_const[:,req_id] = apply_tnorm_iterative2(nilpotentmin_tnorm_batch, fuzzy_values)
                     elif self.hyp.req_type == "hamacher_product":
+                        # loss_const[:,req_id] = hamacherprod_tnorm_tensor(fuzzy_values)
                         loss_const[:,req_id] = apply_tnorm_iterative2(hamacherprod_tnorm_batch, fuzzy_values)
                     elif self.hyp.req_type == "yager":
                         loss_const[:,req_id] = apply_tnorm_iterative2(yager_tnorm, fuzzy_values)
@@ -212,7 +212,6 @@ class MOD_YOLOLoss:
                         
                     else:
                         raise ValueError
-
                 current_loss = loss_const.sum() / (loss_const.shape[0] * loss_const.shape[1])
 
                 # Check if current_loss is nan
@@ -224,21 +223,23 @@ class MOD_YOLOLoss:
                         writer.writerow([self.hyp.req_type, current_loss.item()])
 
                 loss[3] = current_loss
-                first_update = True
+                
 
-                previous_loss = previous_losses[self.hyp.req_type]
-                if previous_loss != float('inf'):
-                    if first_update:
-                        previous_loss += epsilon
-                        first_update = False
-                        
+                if self.hyp.reinforcement_loss:
+                    # first_update = True
+                    epsilon = 1e-9
+
+                    previous_loss = previous_losses[self.hyp.req_type]
+                    if previous_loss != float('inf') and previous_loss < epsilon:
+                        previous_loss = epsilon                            
+                            
                     normalized_update = (previous_loss - current_loss.item()) / (previous_loss)
 
                     if t_norm_values[self.hyp.req_type] == float('inf'):
                         t_norm_values[self.hyp.req_type] = normalized_update
                     else:
                         t_norm_values[self.hyp.req_type] = learning_rate * t_norm_values[self.hyp.req_type] + normalized_update
-                previous_losses[self.hyp.req_type] = current_loss.item()
+                    previous_losses[self.hyp.req_type] = current_loss.item()
 
         with torch.no_grad():
             pred_const = pred_scores.sigmoid()
