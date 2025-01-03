@@ -32,13 +32,13 @@ t_norm_values = {key: float('inf') for key in t_norm_values.keys()}
 previous_losses = {key: float('inf') for key in t_norm_values.keys()}
 
 # Learning rate for updating the rl values
-learning_rate = 0.1
 
 # Exploration probability
-beta = 0.1
+beta_rl = 0.2
+delta_rl = 0.5
 
 # Function to select t-norm based on values with ε-greedy exploration
-def select_t_norm():
+def select_t_norm(beta):
     if random.random() < beta:
         return random.choice(list(t_norm_values.keys()))
     else:
@@ -148,7 +148,6 @@ class MOD_YOLOLoss:
                 pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
         
-        
         if self.hyp.req_loss != 0:
             pred_const = pred_scores.sigmoid()
             max_pred = pred_const[:, :, :10].max(-1)[0]
@@ -170,10 +169,8 @@ class MOD_YOLOLoss:
                 loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]), device=self.device)
 
                 if self.hyp.reinforcement_loss:
-                    self.hyp.req_type = select_t_norm()
-
-                
-                self.t_norm_usage[self.hyp.req_type] += 1
+                    self.hyp.req_type = select_t_norm(beta_rl)
+                    self.t_norm_usage[self.hyp.req_type] += 1
 
                 for req_id in range(self.constraints.shape[0]):
 
@@ -238,7 +235,7 @@ class MOD_YOLOLoss:
                     if t_norm_values[self.hyp.req_type] == float('inf'):
                         t_norm_values[self.hyp.req_type] = normalized_update
                     else:
-                        t_norm_values[self.hyp.req_type] = learning_rate * t_norm_values[self.hyp.req_type] + normalized_update
+                        t_norm_values[self.hyp.req_type] = delta_rl * t_norm_values[self.hyp.req_type] + (1 - delta_rl ) * normalized_update
                     previous_losses[self.hyp.req_type] = current_loss.item()
 
         with torch.no_grad():
@@ -269,7 +266,7 @@ class MOD_YOLOLoss:
         loss[2] *= self.hyp.dfl  # dfl gain
         loss[3] *= self.hyp.req_loss # req_loss gain
 
-        return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
+        return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl, rql)
 
 
 
