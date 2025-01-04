@@ -147,6 +147,10 @@ class MOD_YOLOLoss:
             loss[0], loss[2] = self.bbox_loss(
                 pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
+        if torch.isnan(pred_scores).any():
+            print("Nan values in loss_const")
+            print(torch.isnan(pred_scores).sum())
+            exit()
         
         
         if self.hyp.req_loss != 0:
@@ -196,13 +200,13 @@ class MOD_YOLOLoss:
                     elif self.hyp.req_type == "hamacher_product":
                         loss_const[:,req_id] = apply_tnorm_iterative2(hamacherprod_tnorm_batch, fuzzy_values)
                     elif self.hyp.req_type == "yager":
-                        loss_const[:,req_id] = apply_tnorm_iterative2(yager_tnorm, fuzzy_values)
+                        loss_const[:,req_id] = apply_tnorm_iterative2(yager_tnorm_batch, fuzzy_values)
                     elif self.hyp.req_type == "frank":
                         loss_const[:,req_id] = apply_tnorm_iterative2(frank_tnorm, fuzzy_values)
                     elif self.hyp.req_type == "sugeno_weber":
                         loss_const[:,req_id] = apply_tnorm_iterative2(sugeno_weber_tnorm, fuzzy_values)
-                    elif self.hyp.req_type == "dombi":
-                        loss_const[:,req_id] = apply_tnorm_iterative2(dombi_tnorm_batch, fuzzy_values)
+                    # elif self.hyp.req_type == "dombi": # <- Not working
+                    #     loss_const[:,req_id] = apply_tnorm_iterative2(dombi_tnorm_batch, fuzzy_values)
                     elif self.hyp.req_type == "aczel_alsina":
                         loss_const[:,req_id] = apply_tnorm_iterative2(aczel_alsina_tnorm_batch, fuzzy_values)
                     elif self.hyp.req_type == "hamacher":
@@ -212,6 +216,11 @@ class MOD_YOLOLoss:
                         
                     else:
                         raise ValueError
+                
+                if torch.isnan(loss_const).any():
+                    print("Nan values in loss_const")
+                    torch.nan_to_num(loss_const, nan=0.0)
+                    exit()
 
                 current_loss = loss_const.sum() / (loss_const.shape[0] * loss_const.shape[1])
 
@@ -258,9 +267,10 @@ class MOD_YOLOLoss:
                     req_indices = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
                     loss_const[:,req_id] = torch.max(pred_const[:,req_indices], axis=-1)[0]
                 
-                # Each shows whether the constraint is satisfied (1 if sat)
                 loss[4] = 1 - (loss_const).sum() / (loss_const.shape[0] * loss_const.shape[1])
                 loss[5] = 1 - (loss_const.min(-1)[0]).sum() / (loss_const.shape[0])
+            else:
+                loss[7] = 1
 
 
         loss[0] *= self.hyp.box  # box gain

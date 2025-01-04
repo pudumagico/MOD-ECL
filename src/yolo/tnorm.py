@@ -96,7 +96,7 @@ def hamacherprod_tnorm(a, b):
 
 
 def hamacherprod_tnorm_batch(a, b):
-    return torch.where(a + b == 0, torch.zeros_like(a), (a * b) / (a + b - a * b))
+    return torch.where(a + b == 0, torch.zeros_like(a), (a * b) / torch.clamp(a + b - a * b, min=1e-6, max=1))
 
 def nilpotentmin_tnorm(a, b):
     if a + b > 1:
@@ -115,12 +115,12 @@ def schweizer_sklar_tnorm(a, b, p=2):
         inner_value = torch.zeros_like(a)
     return torch.max(torch.zeros_like(a), inner_value ** (1 / p))
 
+# Fixed
 def schweizer_sklar_tnorm_batch(a, b, p=2):
     if p == 0:
         return min_tnorm(a, b)
     inner_value = a**p + b**p - 1
-    none_zero = inner_value >= 0
-    return torch.where(none_zero, inner_value ** (1 / p), torch.zeros_like(a))
+    return torch.relu(inner_value) ** (1 / p)
 
 
 def hamacher_tnorm(a, b, p=2):
@@ -133,40 +133,51 @@ def frank_tnorm(a, b, p=2):
     return log_with_base(1 + (p**a - 1) * (p**b - 1) / (p - 1), p)
 
 
-def yager_tnorm(a, b, p=2):
+def yager_tnorm(a, b, p=5):
     if p == 1:
         return lukasiewicz_tnorm(a, b)
     return torch.max(torch.zeros_like(a), 1 - ((1 - a) ** p + (1 - b) ** p) ** (1 / p))
 
 
+# Fixed
+def yager_tnorm_batch(a, b, p=2):
+    if p == 1:
+        return lukasiewicz_tnorm(a, b)
+    return torch.relu(1 - ((1 - a) ** p + (1 - b) ** p)) ** (1 / p)
+    # return torch.max(torch.zeros_like(a), 1 - torch.pow(torch.clamp(torch.pow(1 - a, p) + torch.pow(1 - b, p), min=0, max=1), (1 / p)))
+
 def sugeno_weber_tnorm(a, b, p=1):
     return torch.max(torch.zeros_like(a), (a + b - 1 + p * a * b) / (1 + p))
 
 
-def dombi_tnorm(a, b, p=1):
-    if a == 0 or b == 0:
-        return torch.zeros_like(a)
-    elif p == 0:
-        return drastic_tnorm(a, b)
-    return (1 + ((1 - a) / a) ** p + ((1 - b) / b) ** p) ** (-1 / p)
+# Dombi T-Norm is not working as of now!
+# def dombi_tnorm(a, b, p=2):
+#     if a == 0 or b == 0:
+#         return torch.zeros_like(a)
+#     elif p == 0:
+#         return drastic_tnorm(a, b)
+#     return 1/(1 + (((1 - a) / a) ** p + ((1 - b) / b) ** p) ** (1 / p))
 
 
-def dombi_tnorm_batch(a, b, p=1):
-    if p == 0:
-        return drastic_tnorm_batch(a, b)
-    none_zero = (a != 0) & (b != 0)
-    return torch.where(none_zero, (1 + ((1 - a) / a) ** p + ((1 - b) / b) ** p) ** (-1 / p), torch.zeros_like(a))
+# def dombi_tnorm_batch(a, b, p=2):
+#     if p == 0:
+#         return drastic_tnorm_batch(a, b)
+#     none_zero = (a >= 1e-6) & (b >= 1e-6)
+#     # a, b = torch.clamp(a, min=1e-2, max=1-1e-2), torch.clamp(b, min=1e-2, max=1-1e-2)
+#     return torch.where(none_zero, 1/(1 + (((1 - a) / a) ** p + ((1 - b) / b) ** p) ** (1 / p)), (a+b) * 0)
 
 def aczel_alsina_tnorm(a, b, p=1):
     if p == 0 or a == 0 or b == 0:
         return drastic_tnorm(a, b)
     return torch.exp(-((torch.abs(-torch.log(a)) ** p + torch.abs(-torch.log(b)) ** p) ** (1 / p)))
 
+# Fixed
 def aczel_alsina_tnorm_batch(a, b, p=1):
     if p == 0:
         return drastic_tnorm_batch(a, b)
-    none_zero = (a != 0) & (b != 0)
-    return torch.where(none_zero, torch.exp(-((torch.abs(-torch.log(a)) ** p + torch.abs(-torch.log(b)) ** p) ** (1 / p))), torch.zeros_like(a))
+    none_zero = (a >= 1e-6) & (b >= 1e-6)
+    a, b = torch.clamp(a, min=1e-6), torch.clamp(b, min=1e-6)
+    return torch.where(none_zero, torch.exp(-( (torch.abs(-torch.log(a)) ** p + torch.abs(-torch.log(b)) ** p) ** (1 / p))), torch.zeros_like(a))
 
 def plot_2variables(function, resolution=100):
 

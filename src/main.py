@@ -43,7 +43,7 @@ def on_train_epoch_end(trainer):
     # Epochs start at 0
     hyp = trainer.args
     # At epoch 2, modify the required loss by a factor of req_scheduler
-    if trainer.epoch >= 2:
+    if trainer.epoch >= 2 and hyp.req_scheduler > 0:
         trainer.args.req_loss = min(hyp.req_loss * hyp.req_scheduler, 100)
 
 
