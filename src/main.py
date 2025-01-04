@@ -85,6 +85,7 @@ def main():
     else:
         folder_args.append("vanilla")
     
+    folder_args.append("rsched" + str(args.req_scheduler))
     folder_args = "_".join(folder_args)
 
     try:
