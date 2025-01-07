@@ -14,6 +14,18 @@ from ultralytics.utils.metrics import ConfusionMatrix, DetMetrics, box_iou
 from ultralytics.utils.plotting import output_to_target
 from .plot_images import plot_images
 
+import json
+
+from ultralytics.utils.torch_utils import de_parallel, select_device, smart_inference_mode
+from ultralytics.nn.autobackend import AutoBackend
+from ultralytics.utils.checks import check_imgsz
+from ultralytics.utils import LOGGER, TQDM, callbacks, colorstr, emojis, SimpleClass
+from ultralytics.data.utils import check_cls_dataset, check_det_dataset
+from ultralytics.utils.ops import Profile
+
+from .predictor import non_max_suppression_mod
+from ultralytics.utils.metrics import Metric, ap_per_class
+
 
 class MOD_YOLODetectionValidator(BaseValidator):
     """
@@ -37,10 +49,127 @@ class MOD_YOLODetectionValidator(BaseValidator):
         self.is_lvis = False
         self.class_map = None
         self.args.task = "detect"
-        self.metrics = DetMetrics(save_dir=self.save_dir, on_plot=self.on_plot)
+        self.metrics = DetMetrics_MOD(save_dir=self.save_dir, on_plot=self.on_plot)
         self.iouv = torch.linspace(0.5, 0.95, 10)  # IoU vector for mAP@0.5:0.95
         self.niou = self.iouv.numel()
         self.lb = []  # for autolabelling
+    
+    @smart_inference_mode()
+    def __call__(self, trainer=None, model=None):
+        """Executes validation process, running inference on dataloader and computing performance metrics."""
+        self.training = trainer is not None
+        augment = self.args.augment and (not self.training)
+        if self.training:
+            self.device = trainer.device
+            self.data = trainer.data
+            # force FP16 val during training
+            self.args.half = self.device.type != "cpu" and trainer.amp
+            model = trainer.ema.ema or trainer.model
+            model = model.half() if self.args.half else model.float()
+            # self.model = model
+            self.loss = torch.zeros_like(trainer.loss_items, device=trainer.device)
+            self.args.plots &= trainer.stopper.possible_stop or (trainer.epoch == trainer.epochs - 1)
+            model.eval()
+        else:
+            if str(self.args.model).endswith(".yaml") and model is None:
+                LOGGER.warning("WARNING ⚠️ validating an untrained model YAML will result in 0 mAP.")
+            callbacks.add_integration_callbacks(self)
+            model = AutoBackend(
+                weights=model or self.args.model,
+                device=select_device(self.args.device, self.args.batch),
+                dnn=self.args.dnn,
+                data=self.args.data,
+                fp16=self.args.half,
+            )
+            # self.model = model
+            self.device = model.device  # update device
+            self.args.half = model.fp16  # update half
+            stride, pt, jit, engine = model.stride, model.pt, model.jit, model.engine
+            imgsz = check_imgsz(self.args.imgsz, stride=stride)
+            if engine:
+                self.args.batch = model.batch_size
+            elif not pt and not jit:
+                self.args.batch = model.metadata.get("batch", 1)  # export.py models default to batch-size 1
+                LOGGER.info(f"Setting batch={self.args.batch} input of shape ({self.args.batch}, 3, {imgsz}, {imgsz})")
+
+            if str(self.args.data).split(".")[-1] in {"yaml", "yml"}:
+                self.data = check_det_dataset(self.args.data)
+            elif self.args.task == "classify":
+                self.data = check_cls_dataset(self.args.data, split=self.args.split)
+            else:
+                raise FileNotFoundError(emojis(f"Dataset '{self.args.data}' for task={self.args.task} not found ❌"))
+
+            if self.device.type in {"cpu", "mps"}:
+                self.args.workers = 0  # faster CPU val as time dominated by inference, not dataloading
+            if not pt:
+                self.args.rect = False
+            self.stride = model.stride  # used in get_dataloader() for padding
+            self.dataloader = self.dataloader or self.get_dataloader(self.data.get(self.args.split), self.args.batch)
+
+            model.eval()
+            model.warmup(imgsz=(1 if pt else self.args.batch, 3, imgsz, imgsz))  # warmup
+
+        self.run_callbacks("on_val_start")
+        dt = (
+            Profile(device=self.device),
+            Profile(device=self.device),
+            Profile(device=self.device),
+            Profile(device=self.device),
+        )
+        bar = TQDM(self.dataloader, desc=self.get_desc(), total=len(self.dataloader))
+        self.init_metrics(de_parallel(model))
+        self.jdict = []  # empty before each val
+        for batch_i, batch in enumerate(bar):
+            self.run_callbacks("on_val_batch_start")
+            self.batch_i = batch_i
+            # Preprocess
+            with dt[0]:
+                batch = self.preprocess(batch)
+
+            # Inference
+            with dt[1]:
+                preds = model(batch["img"], augment=augment)
+
+            # Loss
+            with dt[2]:
+                if self.training:
+                    self.loss += model.loss(batch, preds)[1]
+
+            # Postprocess
+            with dt[3]:
+                preds = self.postprocess(preds)
+
+            self.update_metrics(preds, batch)
+            if self.args.plots and batch_i < 3:
+                self.plot_val_samples(batch, batch_i)
+                self.plot_predictions(batch, preds, batch_i)
+
+            self.run_callbacks("on_val_batch_end")
+
+        stats = self.get_stats()
+        self.check_stats(stats)
+        self.speed = dict(zip(self.speed.keys(), (x.t / len(self.dataloader.dataset) * 1e3 for x in dt)))
+        self.finalize_metrics()
+        self.print_results()
+        self.run_callbacks("on_val_end")
+        if self.training:
+            model.float()
+            results = {**stats, **trainer.label_loss_items(self.loss.cpu() / len(self.dataloader), prefix="val")}
+            return {k: round(float(v), 5) for k, v in results.items()}  # return results as 5 decimal place floats
+        else:
+            LOGGER.info(
+                "Speed: {:.1f}ms preprocess, {:.1f}ms inference, {:.1f}ms loss, {:.1f}ms postprocess per image".format(
+                    *tuple(self.speed.values())
+                )
+            )
+            if self.args.save_json and self.jdict:
+                with open(str(self.save_dir / "predictions.json"), "w") as f:
+                    LOGGER.info(f"Saving {f.name}...")
+                    json.dump(self.jdict, f)  # flatten and save
+                stats = self.eval_json(stats)  # update stats
+            if self.args.plots or self.args.save_json:
+                LOGGER.info(f"Results saved to {colorstr('bold', self.save_dir)}")
+            return stats
 
     def preprocess(self, batch):
         """Preprocesses batch of images for YOLO training."""
@@ -78,7 +207,8 @@ class MOD_YOLODetectionValidator(BaseValidator):
         self.confusion_matrix = ConfusionMatrix(nc=self.nc, conf=self.args.conf)
         self.seen = 0
         self.jdict = []
-        self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[])
+        # self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[])
+        self.stats = dict(tp=[], conf=[], pred_cls=[], target_cls=[], full_conf=[])
 
     def get_desc(self):
         """Return a formatted string summarizing class metrics of YOLO model."""
@@ -86,7 +216,7 @@ class MOD_YOLODetectionValidator(BaseValidator):
 
     def postprocess(self, preds):
         """Apply Non-maximum suppression to prediction outputs."""
-        return non_max_suppression_mod_val(
+        return non_max_suppression_mod(
             preds,
             self.args.conf,
             self.args.iou,
@@ -126,6 +256,7 @@ class MOD_YOLODetectionValidator(BaseValidator):
                 conf=torch.zeros(0, device=self.device),
                 pred_cls=torch.zeros(0, device=self.device),
                 tp=torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device),
+                full_conf=torch.zeros(npr, self.nc, device=self.device),
             )
             pbatch = self._prepare_batch(si, batch)
             cls, bbox = pbatch.pop("cls"), pbatch.pop("bbox")
@@ -158,9 +289,15 @@ class MOD_YOLODetectionValidator(BaseValidator):
             # Predictions
             if self.args.single_cls:
                 pred[:, 5] = 0
-            predn = self._prepare_pred(pred, pbatch)
+            preds_split = []
+            for p in pred:
+                full_conf = p[5:-1]
+                over_thres = torch.argwhere(full_conf > self.args.conf)
+                preds_split.append(torch.cat((p[:4].unsqueeze(0).repeat(len(over_thres), 1), full_conf[over_thres], over_thres), dim=-1))
+            predn = self._prepare_pred(torch.cat(preds_split, 0), pbatch)
             stat["conf"] = predn[:, 4]
-            stat["pred_cls"] = predn[:, 5]
+            stat["pred_cls"] = predn[:, -1]
+            stat["full_conf"] = pred[:, 4:-2]
 
 
             # Evaluate
@@ -168,6 +305,9 @@ class MOD_YOLODetectionValidator(BaseValidator):
                 stat["tp"] = self._process_batch(predn, bbox, cls)
                 if self.args.plots:
                     self.confusion_matrix.process_batch(predn, bbox, cls)
+            else:
+                stat["tp"] = torch.zeros(len(stat["conf"]), self.niou, dtype=torch.bool, device=self.device)
+
             for k in self.stats.keys():
                 self.stats[k].append(stat[k])
 
@@ -186,6 +326,7 @@ class MOD_YOLODetectionValidator(BaseValidator):
     def get_stats(self):
         """Returns metrics statistics and results dictionary."""
         stats = {k: torch.cat(v, 0).cpu().numpy() for k, v in self.stats.items()}  # to numpy
+        stats['full_conf'] = torch.cat(self.stats['full_conf'], 0)
         if len(stats) and stats["tp"].any():
             self.metrics.process(**stats)
         self.nt_per_class = np.bincount(
@@ -202,6 +343,7 @@ class MOD_YOLODetectionValidator(BaseValidator):
 
         # Print results per class
         if self.args.verbose and not self.training and self.nc > 1 and len(self.stats):
+            pf = "%22s" + "%11i" * 2 + "%11.3g" * (len(self.metrics.keys) - 2)
             for i, c in enumerate(self.metrics.ap_class_index):
                 LOGGER.info(pf % (self.names[c], self.seen, self.nt_per_class[c], *self.metrics.class_result(i)))
 
@@ -293,6 +435,128 @@ class MOD_YOLODetectionValidator(BaseValidator):
                 }
             )
     
+
+
+class DetMetrics_MOD(SimpleClass):
+    """
+    Utility class for computing detection metrics such as precision, recall, and mean average precision (mAP) of an
+    object detection model.
+
+    Args:
+        save_dir (Path): A path to the directory where the output plots will be saved. Defaults to current directory.
+        plot (bool): A flag that indicates whether to plot precision-recall curves for each class. Defaults to False.
+        on_plot (func): An optional callback to pass plots path and data when they are rendered. Defaults to None.
+        names (dict of str): A dict of strings that represents the names of the classes. Defaults to an empty tuple.
+
+    Attributes:
+        save_dir (Path): A path to the directory where the output plots will be saved.
+        plot (bool): A flag that indicates whether to plot the precision-recall curves for each class.
+        on_plot (func): An optional callback to pass plots path and data when they are rendered.
+        names (dict of str): A dict of strings that represents the names of the classes.
+        box (Metric): An instance of the Metric class for storing the results of the detection metrics.
+        speed (dict): A dictionary for storing the execution time of different parts of the detection process.
+
+    Methods:
+        process(tp, conf, pred_cls, target_cls): Updates the metric results with the latest batch of predictions.
+        keys: Returns a list of keys for accessing the computed detection metrics.
+        mean_results: Returns a list of mean values for the computed detection metrics.
+        class_result(i): Returns a list of values for the computed detection metrics for a specific class.
+        maps: Returns a dictionary of mean average precision (mAP) values for different IoU thresholds.
+        fitness: Computes the fitness score based on the computed detection metrics.
+        ap_class_index: Returns a list of class indices sorted by their average precision (AP) values.
+        results_dict: Returns a dictionary that maps detection metric keys to their computed values.
+        curves: TODO
+        curves_results: TODO
+    """
+
+    def __init__(self, save_dir=Path("."), plot=False, on_plot=None, names={}) -> None:
+        """Initialize a DetMetrics instance with a save directory, plot flag, callback function, and class names."""
+        self.save_dir = save_dir
+        self.plot = plot
+        self.on_plot = on_plot
+        self.names = names
+        self.box = Metric()
+        self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
+        self.task = "detect"
+        self.constraints = torch.from_numpy(np.load("../constraints/constraints.npy")).to_sparse()
+
+    def process(self, tp, conf, pred_cls, target_cls, full_conf):
+        """Process predicted results for object detection and update metrics."""
+        results = ap_per_class(
+            tp,
+            conf,
+            pred_cls,
+            target_cls,
+            plot=self.plot,
+            save_dir=self.save_dir,
+            names=self.names,
+            on_plot=self.on_plot,
+        )[2:]
+        self.box.nc = len(self.names)
+        self.box.update(results)
+        self.violations = self.calcViolation(full_conf)
+    
+    def calcViolation(self, full_conf):
+        """Calculate the violation of the constraints."""
+        pred_const = (full_conf >= 0.3).float()
+
+        pred_const = pred_const[pred_const.sum(-1) > 0]
+        pred_const = torch.cat([pred_const, 1-pred_const], axis=-1) # Invert the values
+        loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]))
+        for req_id in range(self.constraints.shape[0]):
+            req_indices = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
+            loss_const[:,req_id] = 1-torch.max(pred_const[:,req_indices], axis=-1)[0] # Violation of constraints
+        full_violation = (loss_const).mean()
+        perbox_violation = (loss_const.sum(-1) > 0).float().mean()
+        return float(full_violation), float(perbox_violation)
+
+    @property
+    def keys(self):
+        """Returns a list of keys for accessing specific metrics."""
+        return ["metrics/precision(B)", "metrics/recall(B)", "metrics/mAP50(B)", "metrics/mAP50-95(B)", "metrics/violation(per_box)", "metrics/violation(full)"]
+
+    def mean_results(self):
+        """Calculate mean of detected objects & return precision, recall, mAP50, and mAP50-95."""
+        mean_results = self.box.mean_results()
+        mean_results.append(self.violations[1])
+        mean_results.append(self.violations[0])
+        return mean_results
+
+    def class_result(self, i):
+        """Return the result of evaluating the performance of an object detection model on a specific class."""
+        return self.box.class_result(i)
+
+    @property
+    def maps(self):
+        """Returns mean Average Precision (mAP) scores per class."""
+        return self.box.maps
+
+    @property
+    def fitness(self):
+        """Returns the fitness of box object."""
+        return self.box.fitness()
+
+    @property
+    def ap_class_index(self):
+        """Returns the average precision index per class."""
+        return self.box.ap_class_index
+
+    @property
+    def results_dict(self):
+        """Returns dictionary of computed performance metrics and statistics."""
+        return dict(zip(self.keys + ["fitness"], self.mean_results() + [self.fitness]))
+
+    @property
+    def curves(self):
+        """Returns a list of curves for accessing specific metrics curves."""
+        return ["Precision-Recall(B)", "F1-Confidence(B)", "Precision-Confidence(B)", "Recall-Confidence(B)"]
+
+    @property
+    def curves_results(self):
+        print(self.box)
+        """Returns dictionary of computed performance metrics and statistics."""
+        return self.box.curves_results
+
 
 
 import time

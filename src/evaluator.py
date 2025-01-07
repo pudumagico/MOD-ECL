@@ -13,7 +13,7 @@ import types
 import pickle
 from constraint_validator import MaxSAT_Validator
 from yolo.trainer import MOD_YOLOTrainer
-from yolo.validator import MOD_YOLODetectionValidator
+from yolo.validator_mod import MOD_YOLODetectionValidator
 
 
 def track(
