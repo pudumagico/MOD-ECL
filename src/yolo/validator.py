@@ -289,10 +289,15 @@ class MOD_YOLODetectionValidator(BaseValidator):
             # Predictions
             if self.args.single_cls:
                 pred[:, 5] = 0
-            predn = self._prepare_pred(pred[:, [0,1,2,3,4,-1]], pbatch)
+            preds_split = []
+            for p in pred:
+                full_conf = p[5:-1]
+                over_thres = torch.argwhere(full_conf > self.args.conf)
+                preds_split.append(torch.cat((p[:4].unsqueeze(0).repeat(len(over_thres), 1), full_conf[over_thres], over_thres), dim=-1))
+            predn = self._prepare_pred(torch.cat(preds_split, 0), pbatch)
             stat["conf"] = predn[:, 4]
             stat["pred_cls"] = predn[:, -1]
-            stat["full_conf"] = pred[:, 5:-1]
+            stat["full_conf"] = pred[:, 4:-2]
 
 
             # Evaluate
@@ -300,6 +305,9 @@ class MOD_YOLODetectionValidator(BaseValidator):
                 stat["tp"] = self._process_batch(predn, bbox, cls)
                 if self.args.plots:
                     self.confusion_matrix.process_batch(predn, bbox, cls)
+            else:
+                stat["tp"] = torch.zeros(len(stat["conf"]), self.niou, dtype=torch.bool, device=self.device)
+
             for k in self.stats.keys():
                 self.stats[k].append(stat[k])
 
@@ -493,14 +501,13 @@ class DetMetrics_MOD(SimpleClass):
         pred_const = (full_conf >= 0.3).float()
 
         pred_const = pred_const[pred_const.sum(-1) > 0]
-        pred_const = torch.cat([1-pred_const, pred_const], axis=-1) # Invert the values
+        pred_const = torch.cat([pred_const, 1-pred_const], axis=-1) # Invert the values
         loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]))
         for req_id in range(self.constraints.shape[0]):
             req_indices = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
-            loss_const[:,req_id] = torch.min(pred_const[:,req_indices], axis=-1)[0] # Violation of constraints
-        
-        full_violation= (loss_const).sum() / (loss_const.shape[0] * loss_const.shape[1])
-        perbox_violation = ((1-loss_const).min(-1)[0]).sum() / (loss_const.shape[0])
+            loss_const[:,req_id] = 1-torch.max(pred_const[:,req_indices], axis=-1)[0] # Violation of constraints
+        full_violation = (loss_const).mean()
+        perbox_violation = (loss_const.sum(-1) > 0).float().mean()
         return float(full_violation), float(perbox_violation)
 
     @property

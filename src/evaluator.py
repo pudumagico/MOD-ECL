@@ -66,7 +66,7 @@ def getArgs():
 
     parser.add_argument("-dataset_path", "--dataset_path", type=str, default="../../road-dataset", help="Path to dataset")
     parser.add_argument("-c-path", "--constraints-path", type=str, default="../constraints/maxsat_constraints.wcnf", help="Path to constraints")
-    parser.add_argument("--conf", type=float, default=0.05, help="Confidence threshold")
+    parser.add_argument("--conf", type=float, default=0.3, help="Confidence threshold")
     parser.add_argument("--tracker", type=str, default="../config/botsort.yaml", help="Tracker configuration")
     parser.add_argument("-s", "--save", action="store_true", help="Save output")
     parser.add_argument("-threshold", "--threshold", type=float, default=0.3, help="Threshold for maxsat")
@@ -108,7 +108,7 @@ def main():
     model.predictor = predictor
     model.track = types.MethodType(track, model)
 
-    metrics = model.val(data=f"../config/dataset_task{args.task}.yaml", device="cuda:0", batch=out_yaml['batch'], conf=args.conf, max_det=300, plots=False)
+    metrics = model.val(data=f"../config/dataset_task{args.task}.yaml", device="cuda:0", batch=out_yaml['batch'], conf=0.3, max_det=300, plots=False, workers=6, iou=0.5)
     # metrics = model.val(data=f"../config/dataset_task0.yaml", device="cuda:0", batch=out_yaml['batch'], conf=args.conf, max_det=300, plots=False)
     print(metrics)
 

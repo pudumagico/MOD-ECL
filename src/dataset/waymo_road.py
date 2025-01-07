@@ -30,12 +30,26 @@ class ROAD_PP:
         # Train: 798, Test: 202
         return [f"train_{i:05}" for i in range(798)]
 
+    def getValidation(self, video_list, seed=1, val_split=0.2):
+        val_list = []
+        random.seed(seed)
+        for video in list(video_list):
+            if random.random() < val_split:
+                val_list.append(video)
+        return val_list
 
     def __init__(self, path="../../ROAD++") -> None:
         self.path = path
 
     def checkExists(self, folder_name):
         return os.path.isdir(os.path.join(self.path, folder_name))
+
+    def getLabelList(self, label_info, frame_now, box_name):
+        id_labels = []
+        id_labels += filter_labels(frame_now['annos'][box_name]['agent_ids'], label_info['all_agent_labels'], self.agent_labels, 0)
+        id_labels += filter_labels(frame_now['annos'][box_name]['action_ids'], label_info['all_action_labels'], self.action_labels, len(self.agent_labels))
+        id_labels += filter_labels(frame_now['annos'][box_name]['loc_ids'], label_info['all_loc_labels'], self.loc_labels, len(self.agent_labels) + len(self.action_labels))
+        return id_labels
 
     def generateYOLO(self, video_list, folder_name, seed=1, val_split=0.2, val_list=[]):
         random.seed(seed)

@@ -94,7 +94,7 @@ def non_max_suppression_mod(
     Returns:
         (List[torch.Tensor]): A list of length batch_size, where each element is a tensor of
             shape (num_boxes, 6 + num_masks) containing the kept boxes, with columns
-            (x1, y1, x2, y2, confidence, class, mask1, mask2, ...).
+            (x1, y1, x2, y2, confidence of all classes, max class, mask1, mask2, ...).
     """
     import torchvision  # scope for faster 'import ultralytics'
 
