@@ -71,7 +71,7 @@ def getArgs():
 
     parser.add_argument("-dataset_path", "--dataset_path", type=str, default="../../road-dataset", help="Path to dataset")
     parser.add_argument("-c-path", "--constraints-path", type=str, default="../constraints/maxsat_constraints.wcnf", help="Path to constraints")
-    parser.add_argument("--conf", type=float, default=0.3, help="Confidence threshold")
+    parser.add_argument("--conf", type=float, default=0.05, help="Confidence threshold")
     parser.add_argument("--tracker", type=str, default="../config/botsort.yaml", help="Tracker configuration")
     parser.add_argument("-s", "--save", action="store_true", help="Save output")
     parser.add_argument("-threshold", "--threshold", type=float, default=0.3, help="Threshold for maxsat")
@@ -82,9 +82,9 @@ def getArgs():
     
     return parser.parse_args()
 
-def calcViolation(full_conf, constraints):
+def calcViolation(full_conf, constraints, threshold):
         """Calculate the violation of the constraints."""
-        pred_const = (full_conf >= 0.3).float()
+        pred_const = (full_conf >= threshold).float()
 
         pred_const = pred_const[pred_const.sum(-1) > 0]
         pred_const = torch.cat([pred_const, 1-pred_const], axis=-1) # Invert the values
@@ -220,7 +220,7 @@ def main():
                         scores=torch.stack(pred_conf).to(args.cuda)
                     )
 
-                    violation = calcViolation(res.boxes.full_conf, constraints)
+                    violation = calcViolation(res.boxes.full_conf, constraints, args.conf)
                     full_violation_now.append(violation[0])
                     perbox_violation_now.append(violation[1])
                     pred_box_num_now += len(res.boxes)

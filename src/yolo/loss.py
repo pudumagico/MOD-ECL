@@ -255,14 +255,14 @@ class MOD_YOLOLoss:
 
 
                 pred_const = pred_const[pred_const.sum(-1) > 0]
-                pred_const = torch.cat([1-pred_const, pred_const], axis=-1) # Invert the values
+                pred_const = torch.cat([pred_const, 1-pred_const], axis=-1) # Invert the values
                 loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]))
                 for req_id in range(self.constraints.shape[0]):
                     req_indices = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
-                    loss_const[:,req_id] = torch.min(pred_const[:,req_indices], axis=-1)[0] # Violation of constraints
+                    loss_const[:,req_id] = 1 - torch.max(pred_const[:,req_indices], axis=-1)[0] # Violation of constraints
                 
-                loss[4] = (loss_const).sum() / (loss_const.shape[0] * loss_const.shape[1])
-                loss[5] = ((1-loss_const).min(-1)[0]).sum() / (loss_const.shape[0])
+                loss[4] = (loss_const).mean()
+                loss[5] = (loss_const.sum() > 0).float().mean()
                 
             else:
                 loss[7] = 1
