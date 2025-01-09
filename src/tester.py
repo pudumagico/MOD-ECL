@@ -94,7 +94,7 @@ def calcViolation(full_conf, constraints, threshold):
             loss_const[:,req_id] = 1-torch.max(pred_const[:,req_indices], axis=-1)[0] # Violation of constraints
         full_violation = (loss_const).sum() / loss_const.shape[1]
         perbox_violation = (loss_const.sum(-1) > 0).float().sum()
-        return float(full_violation), float(perbox_violation)
+        return float(full_violation), float(perbox_violation), int(full_conf.shape[0])
 
 
 def main():
@@ -223,7 +223,7 @@ def main():
                     violation = calcViolation(res.boxes.full_conf, constraints, args.conf)
                     full_violation_now.append(violation[0])
                     perbox_violation_now.append(violation[1])
-                    pred_box_num_now += len(res.boxes)
+                    pred_box_num_now += violation[2]
 
                 else:
                     pred = dict(
@@ -267,10 +267,10 @@ def main():
             print(f"Mean perbox violation: {np.sum(perbox_violation/np.sum(pred_box_num))}")
             with open(f"../runs/{args.model}/stats_{'track' if not args.prediction else 'pred'}.csv", 'w') as f:
                 csv_writer = csv.writer(f)
-                csv_writer.writerow(["Video", "Mean mAP", "Mean full violation", "Mean perbox violation", "Pred box num", "Pred frame num"])
+                csv_writer.writerow(["Video", "Mean mAP", "Mean full violation", "Mean perbox violation", "Total boxes", "Total frames", "Total violations"])
                 for v, f, p, pb, pbn, pfn in zip(videos, frame_map, full_violation, perbox_violation, pred_box_num, pred_frame_num):
-                    csv_writer.writerow([v, f/pfn, p/pbn, pb/pbn, pbn, pfn])
-                csv_writer.writerow(["Total", np.sum(frame_map)/np.sum(pred_frame_num), np.sum(full_violation)/np.sum(pred_box_num), np.sum(perbox_violation)/np.sum(pred_box_num), np.sum(pred_box_num), np.sum(pred_frame_num)])
+                    csv_writer.writerow([v, f/pfn, p/pbn, pb/pbn, pbn, pfn, pb])
+                csv_writer.writerow(["Total", np.sum(frame_map)/np.sum(pred_frame_num), np.sum(full_violation)/np.sum(pred_box_num), np.sum(perbox_violation)/np.sum(pred_box_num), np.sum(pred_box_num), np.sum(pred_frame_num), np.sum(perbox_violation)])
         else:
             db_final[video_name] = db
             with open(f"../result_output/final_results_task{args.task}.pkl", 'wb') as outfile:

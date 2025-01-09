@@ -262,7 +262,7 @@ class MOD_YOLOLoss:
                     loss_const[:,req_id] = 1 - torch.max(pred_const[:,req_indices], axis=-1)[0] # Violation of constraints
                 
                 loss[4] = (loss_const).mean()
-                loss[5] = (loss_const.sum() > 0).float().mean()
+                loss[5] = (loss_const.sum(-1) > 0).float().mean()
                 
             else:
                 loss[7] = 1
