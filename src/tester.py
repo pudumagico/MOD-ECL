@@ -18,6 +18,7 @@ import ultralytics.utils.ops as ops
 import ultralytics.utils.metrics as metrics
 import torchmetrics
 
+
 import csv
 
 
@@ -79,6 +80,7 @@ def getArgs():
     parser.add_argument("-stats", "--stats", action="store_true", help="Print stats")
     parser.add_argument("-pred", "--prediction", action="store_true", help="Use prediction without tracking")
     parser.add_argument("-maxsat", "--maxsat", action="store_true", help="Use MaxSAT solvers to validate results")
+    parser.add_argument("-iou", "--iou", type=float, default=0.7, help="IOU threshold for tracking")
     
     return parser.parse_args()
 
@@ -94,8 +96,55 @@ def calcViolation(full_conf, constraints, threshold):
             loss_const[:,req_id] = 1-torch.max(pred_const[:,req_indices], axis=-1)[0] # Violation of constraints
         full_violation = (loss_const).sum() / loss_const.shape[1]
         perbox_violation = (loss_const.sum(-1) > 0).float().sum()
+    
+        # temp = constraints.indices()[1][constraints.indices()[0]==0]
+        # print(torch.argwhere(loss_const == 1))
         return float(full_violation), float(perbox_violation), int(full_conf.shape[0])
 
+from torch_scatter import scatter_max
+def calcViolation2(full_conf, constraints, threshold):
+    """
+    Calculate the violation of the constraints using torch-scatter.
+    """
+    # Thresholding to get binary predictions
+    pred_const = (full_conf >= threshold).float()
+
+    # Filter out boxes with no active constraints
+    pred_const = pred_const[pred_const.sum(-1) > 0]
+
+    # Add inverted values to create a two-channel representation
+    pred_const = torch.cat([pred_const, 1 - pred_const], dim=-1)
+
+    # Prepare the `loss_const` tensor
+    num_constraints = constraints.shape[0]
+    loss_const = torch.ones((pred_const.shape[0], num_constraints), device=pred_const.device)
+
+    # Extract indices from constraints
+    req_ids = constraints.indices()[0]  # Constraint IDs
+    req_indices = constraints.indices()[1]  # Box indices for each constraint
+
+    req_ids = req_ids.to(pred_const.device)
+    req_indices = req_indices.to(pred_const.device)
+
+    # Use scatter_max to compute max violations per constraint
+    max_values, _ = scatter_max(
+        pred_const[:, req_indices],  # Gather values from pred_const
+        req_ids,                     # Group by constraint IDs
+        dim=1,                       # Reduce along the constraints dimension
+        dim_size=num_constraints     # Ensure the correct size
+    )
+
+    # Compute constraint violations
+    loss_const = 1 - max_values
+    
+    # temp = constraints.indices()[1][constraints.indices()[0]==0]
+    # print(torch.argwhere(loss_const == 1))
+
+    # Compute full and per-box violations
+    full_violation = loss_const.sum() / num_constraints
+    perbox_violation = (loss_const.sum(dim=-1) > 0).float().sum()
+
+    return float(full_violation), float(perbox_violation), int(full_conf.shape[0])
 
 def main():
     args = getArgs()
@@ -144,7 +193,7 @@ def main():
     predictor = MOD_Predictor()
     model.predictor = predictor
     model.track = types.MethodType(track, model)
-    if args.task == 2:
+    if args.task == 2 or args.maxsat:
         maxsat_v = MaxSAT_Validator(args.constraints_path)
     
     db_final = {}
@@ -158,7 +207,7 @@ def main():
     mode = model.track if not args.prediction else model.predict
 
     for video_name in videos:
-        test = mode(os.path.join(args.dataset_path, folder, video_name + '.mp4'), save=args.save, save_txt=False, save_conf=False, device=args.cuda, project="../runs/debug", line_width=3, stream=True, tracker=args.tracker, conf=args.conf, max_det=300, workers=8)
+        test = mode(os.path.join(args.dataset_path, folder, video_name + '.mp4'), save=args.save, save_txt=False, save_conf=False, device=args.cuda, project="../runs/debug", line_width=3, stream=True, tracker=args.tracker, conf=args.conf, max_det=300, workers=8, iou=args.iou)
         # test = model.predict(os.path.join(args.dataset_path, "road_test/rgb-images/", video_name + '/04639.jpg'), save=args.save, save_txt=False, save_conf=False, device=args.cuda, project="../runs/debug", line_width=3, stream=False, conf=args.conf, max_det=300)
         # exit()
         db = {}
@@ -191,16 +240,16 @@ def main():
                         label_list = dataset.getLabelList(label_info, frame_now, box_name)
                         # for label in label_list:
                         for cl in label_list:
-                            gt_box.append(torch.tensor(box_now, device=args.cuda))
-                            gt_class.append(torch.tensor(cl, device=args.cuda))
+                            gt_box.append(torch.tensor(box_now, device=res.boxes.xyxy.device))
+                            gt_class.append(torch.tensor(cl, device=res.boxes.xyxy.device))
                     gt = dict(
-                        boxes=torch.stack(gt_box).to(args.cuda),
-                        labels=torch.stack(gt_class).to(args.cuda),
+                        boxes=torch.stack(gt_box).to(res.boxes.xyxy.device),
+                        labels=torch.stack(gt_class).to(res.boxes.xyxy.device),
                     )
                 else:
                     gt = dict(
-                        boxes=torch.tensor([], device=args.cuda),
-                        labels=torch.tensor([], device=args.cuda),
+                        boxes=torch.tensor([], device=res.boxes.xyxy.device),
+                        labels=torch.tensor([], device=res.boxes.xyxy.device),
                     )
 
                 pred_box = []
@@ -209,27 +258,42 @@ def main():
 
                 if len(res.boxes) != 0:
                     for box in range(len(res.boxes)):
-                        for cl in torch.argwhere(res.boxes.full_conf[box] > args.conf):
-                            pred_box.append(res.boxes.xyxy[box])
-                            pred_class.append(cl[0])
-                            pred_conf.append(res.boxes.full_conf[box,cl[0]])
+                        if args.maxsat:
+                            for cl in maxsat_v.correct_v1(res.boxes.full_conf[box].tolist(), threshold=args.conf):
+                                pred_box.append(res.boxes.xyxy[box])
+                                pred_class.append(torch.tensor(cl, device=res.boxes.xyxy.device))
+                                pred_conf.append(torch.tensor(1.0, device=res.boxes.xyxy.device))
+                            full_violation_now.append(0)
+                            perbox_violation_now.append(0)
+                            pred_box_num_now += len(res.boxes)
+                        else:
+                            # violations = [0, 0, 0]
+                            for cl in torch.argwhere(res.boxes.full_conf[box] > args.conf):
+                                pred_box.append(res.boxes.xyxy[box])
+                                pred_class.append(cl[0])
+                                pred_conf.append(res.boxes.full_conf[box,cl[0]])
+                                # violation_now = calcViolation(res.boxes.full_conf[box], constraints, args.conf)
+                                # violations[0] += violation_now[0]
+                                # violations[1] += violation_now[1]
+                                # violations[2] += violation_now[2]
+                            # violations = calcViolation(res.boxes.full_conf, constraints, args.conf)
+                            violations = calcViolation2(res.boxes.full_conf, constraints, args.conf)
+                            full_violation_now.append(violations[0])
+                            perbox_violation_now.append(violations[1])
+                            pred_box_num_now += violations[2]
                 
                     pred = dict(
-                        boxes=torch.stack(pred_box).to(args.cuda),
-                        labels=torch.stack(pred_class).to(args.cuda),
-                        scores=torch.stack(pred_conf).to(args.cuda)
+                        boxes=torch.stack(pred_box).to(res.boxes.xyxy.device),
+                        labels=torch.stack(pred_class).to(res.boxes.xyxy.device),
+                        scores=torch.stack(pred_conf).to(res.boxes.xyxy.device)
                     )
 
-                    violation = calcViolation(res.boxes.full_conf, constraints, args.conf)
-                    full_violation_now.append(violation[0])
-                    perbox_violation_now.append(violation[1])
-                    pred_box_num_now += violation[2]
 
                 else:
                     pred = dict(
-                        boxes=torch.tensor([], device=args.cuda),
-                        labels=torch.tensor([], device=args.cuda),
-                        scores=torch.tensor([], device=args.cuda)
+                        boxes=torch.tensor([], device=res.boxes.xyxy.device),
+                        labels=torch.tensor([], device=res.boxes.xyxy.device),
+                        scores=torch.tensor([], device=res.boxes.xyxy.device)
                     )
                 
                 if len(gt['boxes']) != 0 or len(pred['boxes']) != 0:
@@ -265,7 +329,7 @@ def main():
             print(f"Mean mAP: {np.sum(frame_map)/np.sum(pred_frame_num)}")
             print(f"Mean full violation: {np.sum(full_violation)/np.sum(pred_box_num)}")
             print(f"Mean perbox violation: {np.sum(perbox_violation/np.sum(pred_box_num))}")
-            with open(f"../runs/{args.model}/stats_{'track' if not args.prediction else 'pred'}.csv", 'w') as f:
+            with open(f"../runs/{args.model}/stats_{'track' if not args.prediction else 'pred'}{'_maxsat' if args.maxsat else ''}.csv", 'w') as f:
                 csv_writer = csv.writer(f)
                 csv_writer.writerow(["Video", "Mean mAP", "Mean full violation", "Mean perbox violation", "Total boxes", "Total frames", "Total violations"])
                 for v, f, p, pb, pbn, pfn in zip(videos, frame_map, full_violation, perbox_violation, pred_box_num, pred_frame_num):
