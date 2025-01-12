@@ -188,7 +188,10 @@ def main():
         else:
             with open(gt_folder, 'rb') as f:
                 label_info = pickle.load(f)
-        constraints = torch.from_numpy(np.load("../constraints/constraints.npy")).to_sparse()
+        if args.dataset == 'road++r':
+            constraints = torch.from_numpy(np.load("../constraints/constraints_roadpp.npy")).to_sparse()
+        else:
+            constraints = torch.from_numpy(np.load("../constraints/constraints.npy")).to_sparse()
 
     predictor = MOD_Predictor()
     model.predictor = predictor

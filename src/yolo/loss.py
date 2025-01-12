@@ -47,7 +47,7 @@ def select_t_norm(beta):
 class MOD_YOLOLoss:
     """Criterion class for computing training losses."""
 
-    def __init__(self, model, const_path="../constraints/constraints.npy"):  # model must be de-paralleled
+    def __init__(self, model):  # model must be de-paralleled
         """Initializes v8DetectionLoss with the model, defining model-related properties and BCE loss function."""
         device = next(model.parameters()).device  # get model device
         h = model.args  # hyperparameters
@@ -66,7 +66,7 @@ class MOD_YOLOLoss:
         self.assigner = MOD_YOLOTaskAlignedAssigner(topk=10, num_classes=self.nc, alpha=0.5, beta=6.0)
         self.bbox_loss = BboxLoss(m.reg_max).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
-        self.constraints = torch.from_numpy(np.load(const_path)).to_sparse()
+        self.constraints = torch.from_numpy(np.load(h.const_path)).to_sparse()
         self.t_norm_usage = {key: 0 for key in t_norm_values.keys()}
 
     def preprocess(self, targets, batch_size, scale_tensor, num_classes):

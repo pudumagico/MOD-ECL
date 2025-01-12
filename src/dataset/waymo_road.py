@@ -24,7 +24,8 @@ class ROAD_PP:
 
     agent_labels = ['Ped', 'Car', 'Cyc', 'Mobike', 'MedVeh', 'LarVeh', 'Bus', 'EmVeh', 'TL', 'OthTL']
     action_labels = ['Red', 'Amber', 'Green', 'MovAway', 'MovTow', 'Mov', 'Brake', 'Stop', 'IncatLft', 'IncatRht', 'HazLit', 'TurLft', 'TurRht', 'Ovtak', 'Wait2X', 'XingFmLft', 'XingFmRht', 'Xing', 'PushObj']
-    loc_labels = ['VehLane', 'OutgoLane', 'OutgoCycLane', 'IncomLane', 'IncomCycLane', 'Pav', 'LftPav', 'RhtPav', 'Jun', 'xing', 'BusStop', 'parking']
+    loc_labels = ['VehLane', 'OutgoLane', 'OutgoCycLane', 'IncomLane', 'IncomCycLane', 'Pav', 'LftPav', 'RhtPav', 'Jun', 'xing', 'BusStop', 'parking', 'OutgoBusLane', 'IncomBusLane', 'OutgoBusLane']
+    plus_labels = ['OutgoBusLane', 'IncomBusLane', 'rightParking', 'LftParking', 'Rev', 'SmalVeh', 'MovLft', 'MovRht']
 
     def getLabels(self, task):
         # Train: 798, Test: 202
@@ -40,15 +41,30 @@ class ROAD_PP:
 
     def __init__(self, path="../../ROAD++") -> None:
         self.path = path
+        self.all_labels = self.agent_labels + self.action_labels + self.loc_labels + self.plus_labels
 
     def checkExists(self, folder_name):
         return os.path.isdir(os.path.join(self.path, folder_name))
 
     def getLabelList(self, label_info, frame_now, box_name):
         id_labels = []
-        id_labels += filter_labels(frame_now['annos'][box_name]['agent_ids'], label_info['all_agent_labels'], self.agent_labels, 0)
-        id_labels += filter_labels(frame_now['annos'][box_name]['action_ids'], label_info['all_action_labels'], self.action_labels, len(self.agent_labels))
-        id_labels += filter_labels(frame_now['annos'][box_name]['loc_ids'], label_info['all_loc_labels'], self.loc_labels, len(self.agent_labels) + len(self.action_labels))
+        id_labels_name = []
+        for id in frame_now['annos'][box_name]['agent_ids']:
+            id_labels_name.append(label_info['all_agent_labels'][id])
+        for id in frame_now['annos'][box_name]['action_ids']:
+            id_labels_name.append(label_info['all_action_labels'][id])
+        for id in frame_now['annos'][box_name]['loc_ids']:
+            id_labels_name.append(label_info['all_loc_labels'][id])
+            
+        for label in id_labels_name:
+            if label in self.all_labels:
+                id_labels.append(self.all_labels.index(label))
+            else:
+                raise ValueError(f"Label {label} not found in all_labels")
+
+        # id_labels += filter_labels(frame_now['annos'][box_name]['agent_ids'], label_info['all_agent_labels'], self.agent_labels, 0)
+        # id_labels += filter_labels(frame_now['annos'][box_name]['action_ids'], label_info['all_action_labels'], self.action_labels, len(self.agent_labels))
+        # id_labels += filter_labels(frame_now['annos'][box_name]['loc_ids'], label_info['all_loc_labels'], self.loc_labels, len(self.agent_labels) + len(self.action_labels))
         return id_labels
 
     def generateYOLO(self, video_list, folder_name, seed=1, val_split=0.2, val_list=[]):

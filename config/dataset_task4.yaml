@@ -2,7 +2,7 @@ path: /root/ROAD++/task4_yolo_roadpp
 train: images/train
 val: images/val
 test:
-nc: 41
+nc: 49
 
 # Classes (80 COCO classes)
 names:
@@ -47,3 +47,11 @@ names:
   38: xing
   39: BusStop
   40: parking
+  41: OutgoBusLane
+  42: IncomBusLane
+  43: rightParking
+  44: LftParking
+  45: Rev
+  46: SmalVeh
+  47: MovLft
+  48: MovRht
