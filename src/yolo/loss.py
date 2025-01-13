@@ -150,7 +150,7 @@ class MOD_YOLOLoss:
         
         if self.hyp.req_loss != 0:
             pred_const = pred_scores.sigmoid()
-            max_pred = pred_const[:, :, :10].max(-1)[0]
+            max_pred = pred_const.max(-1)[0]
             
             max_pred_sorted = torch.sort(max_pred, descending=True, dim=-1)
             

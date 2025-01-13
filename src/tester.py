@@ -172,8 +172,8 @@ def main():
         dataset = ROAD_PP(args.dataset_path)
         videos = dataset.getValidation(dataset.getLabels(args.task), seed=1, val_split=0.2)
 
-        # videos = ["train_00000"]
-        # gt_folder = "label_info.pkl"
+        videos = ["train_00000"]
+        gt_folder = "label_info.pkl"
     else:
         assert False, "Dataset not supported"
 
@@ -194,6 +194,7 @@ def main():
             constraints = torch.from_numpy(np.load("../constraints/constraints.npy")).to_sparse()
 
     predictor = MOD_Predictor()
+    predictor.dataset_type = args.dataset
     model.predictor = predictor
     model.track = types.MethodType(track, model)
     if args.task == 2 or args.maxsat:

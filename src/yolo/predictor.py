@@ -27,6 +27,7 @@ class MOD_Predictor(BasePredictor):
 
     def postprocess(self, preds, img, orig_imgs):
         """Post-processes predictions and returns a list of Results objects."""
+        agents = [0,1,2,3,4,5,6,7,8,9] if self.dataset_type == "road-r" else [0,1,2,3,4,5,6,7,8,9,46]
         preds = non_max_suppression_mod(
             preds,
             self.args.conf,
@@ -34,7 +35,8 @@ class MOD_Predictor(BasePredictor):
             agnostic=self.args.agnostic_nms,
             max_det=self.args.max_det,
             classes=self.args.classes,
-            multi_label=True
+            multi_label=True,
+            agents=agents
         )
 
         if not isinstance(orig_imgs, list):  # input images are a torch.Tensor, not a list
@@ -65,6 +67,7 @@ def non_max_suppression_mod(
     max_wh=7680,
     in_place=True,
     rotated=False,
+    agents=[0,1,2,3,4,5,6,7,8,9]
 ):
     """
     Perform non-maximum suppression (NMS) on a set of boxes, with support for masks and multiple labels per box.
@@ -145,7 +148,7 @@ def non_max_suppression_mod(
         # Detections matrix nx6 (xyxy, conf, cls)
         box, cls, mask = x.split((4, nc, nm), 1)
 
-        conf, j = cls[:,:10].max(1, keepdim=True) # <- Modified
+        conf, j = cls[:,agents].max(1, keepdim=True) # <- Modified
         conf_mask = conf.view(-1) > conf_thres
         x = torch.cat((box, cls, conf, j.float(), mask), 1)[conf_mask]
 

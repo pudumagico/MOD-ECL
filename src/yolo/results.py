@@ -458,7 +458,7 @@ class MOD_Boxes(BaseTensor):
     @property
     def full_conf(self):
         """Return the class values of the boxes."""
-        return self.data[:, 4:45]
+        return self.data[:, 4:-2]
     
     @property
     def id(self):
