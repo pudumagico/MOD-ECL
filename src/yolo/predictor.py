@@ -27,7 +27,7 @@ class MOD_Predictor(BasePredictor):
 
     def postprocess(self, preds, img, orig_imgs):
         """Post-processes predictions and returns a list of Results objects."""
-        agents = [0,1,2,3,4,5,6,7,8,9] if self.dataset_type == "road-r" else [0,1,2,3,4,5,6,7,8,9,46]
+        agents = [0,1,2,3,4,5,6,7,8,9] if self.dataset_type == "road-r" else [0,1,2,3,4,5,6,7,8,9,45]
         preds = non_max_suppression_mod(
             preds,
             self.args.conf,

@@ -22,7 +22,7 @@ def filter_labels(ids, all_labels, used_labels, offset):
 
 class ROAD_PP:
 
-    agent_labels = ['Ped', 'Car', 'Cyc', 'Mobike', 'MedVeh', 'LarVeh', 'Bus', 'EmVeh', 'TL', 'OthTL']
+    agent_labels = ['Ped', 'Car', 'Cyc', 'Mobike', 'MedVeh', 'LarVeh', 'Bus', 'EmVeh', 'TL']
     action_labels = ['Red', 'Amber', 'Green', 'MovAway', 'MovTow', 'Mov', 'Brake', 'Stop', 'IncatLft', 'IncatRht', 'HazLit', 'TurLft', 'TurRht', 'Ovtak', 'Wait2X', 'XingFmLft', 'XingFmRht', 'Xing', 'PushObj']
     loc_labels = ['VehLane', 'OutgoLane', 'OutgoCycLane', 'IncomLane', 'IncomCycLane', 'Pav', 'LftPav', 'RhtPav', 'Jun', 'xing', 'BusStop', 'parking', 'OutgoBusLane', 'IncomBusLane', 'OutgoBusLane']
     plus_labels = ['OutgoBusLane', 'IncomBusLane', 'rightParking', 'LftParking', 'Rev', 'SmalVeh', 'MovLft', 'MovRht']
