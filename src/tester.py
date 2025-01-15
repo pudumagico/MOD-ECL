@@ -333,7 +333,7 @@ def main():
             print(f"Mean mAP: {np.sum(frame_map)/np.sum(pred_frame_num)}")
             print(f"Mean full violation: {np.sum(full_violation)/np.sum(pred_box_num)}")
             print(f"Mean perbox violation: {np.sum(perbox_violation/np.sum(pred_box_num))}")
-            with open(f"../runs/{args.model}/stats_{'track' if not args.prediction else 'pred'}{'_maxsat' if args.maxsat else ''}.csv", 'w') as f:
+            with open(f"../runs/{args.model}/stats_{'track' if not args.prediction else 'pred'}{'_maxsat' if args.maxsat else ''}_conf={args.conf}.csv", 'w') as f:
                 csv_writer = csv.writer(f)
                 csv_writer.writerow(["Video", "Mean mAP", "Mean full violation", "Mean perbox violation", "Total boxes", "Total frames", "Total violations"])
                 for v, f, p, pb, pbn, pfn in zip(videos, frame_map, full_violation, perbox_violation, pred_box_num, pred_frame_num):
