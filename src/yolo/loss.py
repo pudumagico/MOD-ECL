@@ -15,18 +15,17 @@ from yolo.tnorm import *
 # Initialize values for each t-norm
 t_norm_values = {
     "product": 0.0,
-    "lukasiewicz": 0.0,
     "minimum": 0.0,
+    "hamacher_product": 0.0,
+    "schweizer_sklar": 0.0,
+    "lukasiewicz": 0.0,
     "drastic": 0.0,
     "nilpotent_minimum": 0.0,
-    "hamacher_product": 0.0,
     "frank": 0.0,
     "yager": 0.0,
     "sugeno_weber": 0.0,
-    "dombi": 0.0,
     "aczel_alsina": 0.0,
     "hamacher": 0.0,
-    "schweizer_sklar": 0.0,
 }
 t_norm_values = {key: float('inf') for key in t_norm_values.keys()}
 previous_losses = {key: float('inf') for key in t_norm_values.keys()}
@@ -34,7 +33,7 @@ previous_losses = {key: float('inf') for key in t_norm_values.keys()}
 # Learning rate for updating the rl values
 
 # Exploration probability
-beta_rl = 0.2
+beta_rl = 0.5
 delta_rl = 0.5
 
 # Function to select t-norm based on values with ε-greedy exploration
@@ -232,16 +231,21 @@ class MOD_YOLOLoss:
                     epsilon = 1e-9
 
                     previous_loss = previous_losses[self.hyp.req_type]
-                    if previous_loss != float('inf') and previous_loss < epsilon:
-                        previous_loss = epsilon                            
-                            
-                    normalized_update = (previous_loss - current_loss.item()) / (previous_loss)
-
-                    if t_norm_values[self.hyp.req_type] == float('inf'):
-                        t_norm_values[self.hyp.req_type] = normalized_update
+                    
+                    if previous_loss == float('inf'):
+                        previous_losses[self.hyp.req_type] = current_loss.item()
                     else:
-                        t_norm_values[self.hyp.req_type] = delta_rl * t_norm_values[self.hyp.req_type] + (1 - delta_rl ) * normalized_update
-                    previous_losses[self.hyp.req_type] = current_loss.item()
+                        if previous_loss < epsilon:
+                            previous_loss = epsilon                            
+                                
+                        normalized_update = (previous_loss - current_loss.item()) / (previous_loss)
+
+                        if t_norm_values[self.hyp.req_type] == float('inf'):
+                            t_norm_values[self.hyp.req_type] = delta_rl * normalized_update
+                        else:
+                            # t_norm_values[self.hyp.req_type] += delta_rl * normalized_update
+                            t_norm_values[self.hyp.req_type] = delta_rl * t_norm_values[self.hyp.req_type] + (1 - delta_rl) * normalized_update
+                        previous_losses[self.hyp.req_type] = current_loss.item()
 
         with torch.no_grad():
             pred_const = pred_scores.sigmoid()
@@ -272,6 +276,17 @@ class MOD_YOLOLoss:
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
         loss[3] *= self.hyp.req_loss # req_loss gain
+        
+        def is_main_process():
+            import torch.distributed as dist
+            return not dist.is_initialized() or dist.get_rank() == 0
+        
+        if self.hyp.reinforcement_loss and is_main_process:
+            import json
+            with open(f"t_norm_usage.txt", 'a+') as t_norm_usage_file:
+                t_norm_usage_file.write('\n')
+                t_norm_usage_file.write(json.dumps(self.t_norm_usage))
+        
 
         return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl, rql)
 
