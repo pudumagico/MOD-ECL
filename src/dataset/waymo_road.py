@@ -9,22 +9,12 @@ import numpy as np
 from tqdm import tqdm
 
 
-def filter_labels(ids, all_labels, used_labels, offset):
-    """Filter the used ids"""
-    used_ids = []
-    for id in ids:
-        label = all_labels[id]
-        if label in used_labels:
-            used_ids.append(used_labels.index(label) + offset)
-    
-    return used_ids
-
 
 class ROAD_PP:
 
     agent_labels = ['Ped', 'Car', 'Cyc', 'Mobike', 'MedVeh', 'LarVeh', 'Bus', 'EmVeh', 'TL']
     action_labels = ['Red', 'Amber', 'Green', 'MovAway', 'MovTow', 'Mov', 'Brake', 'Stop', 'IncatLft', 'IncatRht', 'HazLit', 'TurLft', 'TurRht', 'Ovtak', 'Wait2X', 'XingFmLft', 'XingFmRht', 'Xing', 'PushObj']
-    loc_labels = ['VehLane', 'OutgoLane', 'OutgoCycLane', 'IncomLane', 'IncomCycLane', 'Pav', 'LftPav', 'RhtPav', 'Jun', 'xing', 'BusStop', 'parking', 'OutgoBusLane', 'IncomBusLane', 'OutgoBusLane']
+    loc_labels = ['VehLane', 'OutgoLane', 'OutgoCycLane', 'IncomLane', 'IncomCycLane', 'Pav', 'LftPav', 'RhtPav', 'Jun', 'xing', 'BusStop', 'parking']
     plus_labels = ['OutgoBusLane', 'IncomBusLane', 'rightParking', 'LftParking', 'Rev', 'SmalVeh', 'MovLft', 'MovRht']
 
     def getLabels(self, task):
@@ -117,10 +107,11 @@ class ROAD_PP:
                             # id_labels += filter_labels(frame_now['annos'][box_name]['agent_ids'], label_info['all_agent_labels'], label_info['agent_labels'], 0) 
                             # id_labels += filter_labels(frame_now['annos'][box_name]['action_ids'], label_info['all_action_labels'], label_info['action_labels'], len(label_info['agent_labels']))
                             # id_labels += filter_labels(frame_now['annos'][box_name]['loc_ids'], label_info['all_loc_labels'], label_info['loc_labels'], len(label_info['agent_labels']) + len(label_info['action_labels']))
-                            id_labels += filter_labels(frame_now['annos'][box_name]['agent_ids'], label_info['all_agent_labels'], self.agent_labels, 0)
-                            id_labels += filter_labels(frame_now['annos'][box_name]['action_ids'], label_info['all_action_labels'], self.action_labels, len(self.agent_labels))
-                            id_labels += filter_labels(frame_now['annos'][box_name]['loc_ids'], label_info['all_loc_labels'], self.loc_labels, len(self.agent_labels) + len(self.action_labels))
+                            # id_labels += filter_labels(frame_now['annos'][box_name]['agent_ids'], label_info['all_agent_labels'], self.agent_labels, 0)
+                            # id_labels += filter_labels(frame_now['annos'][box_name]['action_ids'], label_info['all_action_labels'], self.action_labels, len(self.agent_labels))
+                            # id_labels += filter_labels(frame_now['annos'][box_name]['loc_ids'], label_info['all_loc_labels'], self.loc_labels, len(self.agent_labels) + len(self.action_labels))
 
+                            id_labels = self.getLabelList(label_info, frame_now, box_name)
                             box = ops.xyxy2xywh(np.asarray(frame_now['annos'][box_name]['box'])).tolist()
                             for i in range(4):
                                 box[i] = min(max(0, box[i]), 1)
