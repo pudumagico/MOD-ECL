@@ -1,4 +1,4 @@
-path: /root/src/road-dataset/debug_yolo
+path: /root/road-dataset/debug_yolo
 train: images/train
 val: images/val
 test:

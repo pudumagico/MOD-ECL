@@ -27,6 +27,7 @@ class MOD_Predictor(BasePredictor):
 
     def postprocess(self, preds, img, orig_imgs):
         """Post-processes predictions and returns a list of Results objects."""
+        agents = [0,1,2,3,4,5,6,7,8,9] if self.dataset_type == "road-r" else [0,1,2,3,4,5,6,7,8,45]
         preds = non_max_suppression_mod(
             preds,
             self.args.conf,
@@ -34,7 +35,8 @@ class MOD_Predictor(BasePredictor):
             agnostic=self.args.agnostic_nms,
             max_det=self.args.max_det,
             classes=self.args.classes,
-            multi_label=True
+            multi_label=True,
+            agents=agents
         )
 
         if not isinstance(orig_imgs, list):  # input images are a torch.Tensor, not a list
@@ -45,7 +47,7 @@ class MOD_Predictor(BasePredictor):
             orig_img = orig_imgs[i]
             pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
             img_path = self.batch[0][i]
-            results.append(MOD_Results(orig_img, path=img_path, names=self.model.names, boxes=pred, thres=self.args.conf))
+            results.append(MOD_Results(orig_img, path=img_path, names=self.model.names, boxes=pred, thres=self.args.conf, nc=self.nc))
         return results
 
 
@@ -65,6 +67,7 @@ def non_max_suppression_mod(
     max_wh=7680,
     in_place=True,
     rotated=False,
+    agents=[0,1,2,3,4,5,6,7,8,9]
 ):
     """
     Perform non-maximum suppression (NMS) on a set of boxes, with support for masks and multiple labels per box.
@@ -94,7 +97,7 @@ def non_max_suppression_mod(
     Returns:
         (List[torch.Tensor]): A list of length batch_size, where each element is a tensor of
             shape (num_boxes, 6 + num_masks) containing the kept boxes, with columns
-            (x1, y1, x2, y2, confidence, class, mask1, mask2, ...).
+            (x1, y1, x2, y2, confidence of all classes, max class, mask1, mask2, ...).
     """
     import torchvision  # scope for faster 'import ultralytics'
 
@@ -145,7 +148,7 @@ def non_max_suppression_mod(
         # Detections matrix nx6 (xyxy, conf, cls)
         box, cls, mask = x.split((4, nc, nm), 1)
 
-        conf, j = cls[:,:10].max(1, keepdim=True) # <- Modified
+        conf, j = cls[:,agents].max(1, keepdim=True) # <- Modified
         conf_mask = conf.view(-1) > conf_thres
         x = torch.cat((box, cls, conf, j.float(), mask), 1)[conf_mask]
 

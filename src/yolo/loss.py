@@ -6,48 +6,47 @@ import torch.nn as nn
 
 from ultralytics.utils.ops import xywh2xyxy
 from ultralytics.utils.tal import TaskAlignedAssigner, dist2bbox, make_anchors
-from ultralytics.utils.loss import BboxLoss
 from ultralytics.utils.metrics import bbox_iou
 
 import numpy as np
 
+from yolo.tnorm import *
+
 # Initialize values for each t-norm
 t_norm_values = {
-    # "godel": 0.0,s
-    # "lukasiewicz": 0.0,
+    "product": 0.0,
     "minimum": 0.0,
-    # "drastic": 0.0,
-    # "not_so_drastic": 0.0,
+    "hamacher_product": 0.0,
+    "schweizer_sklar": 0.0,
+    "lukasiewicz": 0.0,
+    "drastic": 0.0,
     "nilpotent_minimum": 0.0,
-    # "hamacher_product": 0.0,
-    "weber": 0.0,
-    # "dubois_prade": 0.0,
-    # "dombi": 0.0,
-    # "nilpotent_conorm": 0.0,
-    "sugeno": 0.0,
-    "yager": 0.0,
     "frank": 0.0,
-    "product": 0.0
+    "yager": 0.0,
+    "sugeno_weber": 0.0,
+    "aczel_alsina": 0.0,
+    "hamacher": 0.0,
 }
+t_norm_values = {key: float('inf') for key in t_norm_values.keys()}
 previous_losses = {key: float('inf') for key in t_norm_values.keys()}
 
-# Learning rate for updating the values
-learning_rate = 0.1
+# Learning rate for updating the rl values
 
 # Exploration probability
-epsilon = 0.1
+beta_rl = 0.1
+delta_rl = 0.5
 
 # Function to select t-norm based on values with ε-greedy exploration
-def select_t_norm():
-    if random.random() < epsilon:
+def select_t_norm(beta):
+    if random.random() < beta:
         return random.choice(list(t_norm_values.keys()))
     else:
-        return min(t_norm_values, key=t_norm_values.get)
-
+        return max(t_norm_values, key=t_norm_values.get)
+    
 class MOD_YOLOLoss:
     """Criterion class for computing training losses."""
 
-    def __init__(self, model, const_path="../constraints/constraints.npy"):  # model must be de-paralleled
+    def __init__(self, model):  # model must be de-paralleled
         """Initializes v8DetectionLoss with the model, defining model-related properties and BCE loss function."""
         device = next(model.parameters()).device  # get model device
         h = model.args  # hyperparameters
@@ -64,9 +63,9 @@ class MOD_YOLOLoss:
         self.use_dfl = m.reg_max > 1
 
         self.assigner = MOD_YOLOTaskAlignedAssigner(topk=10, num_classes=self.nc, alpha=0.5, beta=6.0)
-        self.bbox_loss = BboxLoss(m.reg_max - 1, use_dfl=self.use_dfl).to(device)
+        self.bbox_loss = BboxLoss(m.reg_max).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
-        self.constraints = torch.from_numpy(np.load(const_path)).to_sparse()
+        self.constraints = torch.from_numpy(np.load(h.const_path)).to_sparse()
         self.t_norm_usage = {key: 0 for key in t_norm_values.keys()}
 
     def preprocess(self, targets, batch_size, scale_tensor, num_classes):
@@ -96,8 +95,9 @@ class MOD_YOLOLoss:
         return dist2bbox(pred_dist, anchor_points, xywh=False)
 
     def __call__(self, preds, batch):
+
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
-        loss = torch.zeros(6, device=self.device)  # box, cls, dfl, req_loss <- Modification point
+        loss = torch.zeros(8, device=self.device)  # box, cls, dfl, req_loss <- Modification point
         feats = preds[1] if isinstance(preds, tuple) else preds
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc), 1
@@ -123,7 +123,7 @@ class MOD_YOLOLoss:
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0)
 
         # Pboxes
-        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4+)
 
         _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
             pred_scores.detach().sigmoid(),
@@ -147,84 +147,73 @@ class MOD_YOLOLoss:
                 pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
         
-
-        
-        pred_const = pred_scores.sigmoid()
         if self.hyp.req_loss != 0:
-            max_pred = pred_const[:, :, :10].max(-1)[0]
+            pred_const = pred_scores.sigmoid()
+            max_pred = pred_const.max(-1)[0]
+            
             max_pred_sorted = torch.sort(max_pred, descending=True, dim=-1)
-            # 64 -> 128
-            pred_const = torch.gather(pred_const, 1, max_pred_sorted[1][:, :64].unsqueeze(-1).expand(-1, -1, pred_const.shape[-1]))
-            pred_const = pred_const[max_pred_sorted[0][:, :64] > 0.5]
+            
+            if self.hyp.req_num_detect == -1:
+                pred_const = torch.gather(pred_const, 1, max_pred_sorted[1].unsqueeze(-1).expand(-1, -1, pred_const.shape[-1]))
+                pred_const = pred_const[max_pred_sorted[0] > 0.5]
+            else:
+                pred_const = torch.gather(pred_const, 1, max_pred_sorted[1][:, :self.hyp.req_num_detect].unsqueeze(-1).expand(-1, -1, pred_const.shape[-1]))
+                pred_const = pred_const[max_pred_sorted[0][:, :self.hyp.req_num_detect] > 0.5]
+
+            ############################################
             
             if pred_const.shape[0] > 0:
                 pred_const = torch.cat([pred_const, 1-pred_const], axis=-1)
+
                 loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]), device=self.device)
 
                 if self.hyp.reinforcement_loss:
-                    self.hyp.req_type = select_t_norm()
-                    # print(f'Selected t-norm: {self.hyp.req_type}')
-                
-                self.t_norm_usage[self.hyp.req_type] += 1
+                    self.hyp.req_type = select_t_norm(beta_rl)
+                    self.t_norm_usage[self.hyp.req_type] += 1
 
                 for req_id in range(self.constraints.shape[0]):
 
                     req_ind = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
                     fuzzy_values = 1 - pred_const[:,req_ind]
-                    #going up
-                    # if self.hyp.req_type == "godel":
-                    #     loss_const[:,req_id] = torch.max(fuzzy_values, axis=-1)[0]
-                    #broken
-                    # elif self.hyp.req_type == "lukasiewicz":
-                    #     loss_const[:,req_id] = torch.relu(torch.sum(fuzzy_values, axis=-1)-len(req_ind))
-                    if self.hyp.req_type == "minimum":
-                        loss_const[:,req_id] = torch.min(fuzzy_values, axis=-1)[0]
-                    #going up
-                    # elif self.hyp.req_type == "drastic":
-                    #     drastic_prod = torch.where(fuzzy_values == 1, fuzzy_values, torch.zeros_like(fuzzy_values))
-                    #     loss_const[:,req_id] = torch.max(drastic_prod, axis=-1)[0] 
-                    #new
-                    # elif self.hyp.req_type == "not_so_drastic":
-                    #     drastic_prod = torch.where(fuzzy_values > 0.9, fuzzy_values, torch.zeros_like(fuzzy_values))
-                    #     loss_const[:,req_id] = torch.max(drastic_prod, axis=-1)[0] 
+                    if self.hyp.req_type == "lukasiewicz":
+                        loss_const[:,req_id] = lukasiewicz_tnorm_tensor(fuzzy_values)
+                        # loss_const[:,req_id] = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_values)
+                    elif self.hyp.req_type == "minimum":
+                        loss_const[:,req_id] = min_tnorm_tensor(fuzzy_values)
+                        # loss_const[:,req_id] = apply_tnorm_iterative(min_tnorm, fuzzy_values)
+                    elif self.hyp.req_type == "product":
+                        loss_const[:,req_id] = product_tnorm_tensor(fuzzy_values)
+                        # loss_const[:,req_id] = apply_tnorm_iterative(product_tnorm, fuzzy_values)
+                    elif self.hyp.req_type == "drastic":
+                        loss_const[:,req_id] = apply_tnorm_iterative2(drastic_tnorm_batch, fuzzy_values)
                     elif self.hyp.req_type == "nilpotent_minimum":
-                        sum_pred_const = torch.sum(fuzzy_values, axis=-1)
-                        loss_const[:, req_id] = torch.where(sum_pred_const > 1, torch.min(fuzzy_values, axis=-1)[0], torch.zeros_like(sum_pred_const))
-                    #broken
-                    # elif self.hyp.req_type == "hamacher_product":
-                    #     sum_pred_const = torch.sum(fuzzy_values, axis=-1)[0]
-                    #     prod_pred_const = torch.prod(fuzzy_values, axis=-1)[0]
-                    #     loss_const[:, req_id] = torch.where(sum_pred_const > 0, prod_pred_const / (sum_pred_const - prod_pred_const), torch.zeros_like(sum_pred_const))
-                    elif self.hyp.req_type == "weber":
-                        loss_const[:, req_id] = torch.prod(fuzzy_values, axis=-1) / (1 + torch.prod(1 - fuzzy_values, axis=-1))[0]
-                    # elif self.hyp.req_type == "dubois_prade":
-                    #     sum_pred_const = torch.sum(fuzzy_values, axis=-1)[0]
-                    #     loss_const[:, req_id] = torch.where(sum_pred_const <= 1, torch.zeros_like(sum_pred_const), sum_pred_const - 1)
-                    #broken
-                    # elif self.hyp.req_type == "dombi":
-                    #     lambda_param = self.hyp.lambda_param if hasattr(self.hyp, 'lambda_param') else 1.0
-                    #     dombi_sum = torch.pow((1 - fuzzy_values) / fuzzy_values, lambda_param)
-                    #     loss_const[:, req_id] = 1 / (1 + torch.pow(torch.sum(dombi_sum, axis=-1), 1 / lambda_param))
-                    # elif self.hyp.req_type == "nilpotent_conorm":
-                    #     sum_pred_const = torch.sum(fuzzy_values, axis=-1)
-                    #     loss_const[:, req_id] = torch.where(sum_pred_const < 1, torch.max(fuzzy_values, axis=-1)[0], torch.ones_like(sum_pred_const))
-                    elif self.hyp.req_type == "sugeno":
-                        k_param = self.hyp.k_param if hasattr(self.hyp, 'k_param') else 0.5
-                        loss_const[:, req_id] = torch.min(torch.min(fuzzy_values, axis=-1)[0], torch.tensor(k_param, device=self.device))
+                        loss_const[:,req_id] = apply_tnorm_iterative2(nilpotentmin_tnorm_batch, fuzzy_values)
+                    elif self.hyp.req_type == "hamacher_product":
+                        # loss_const[:,req_id] = hamacherprod_tnorm_tensor(fuzzy_values)
+                        loss_const[:,req_id] = apply_tnorm_iterative2(hamacherprod_tnorm_batch, fuzzy_values)
                     elif self.hyp.req_type == "yager":
-                        p_param = self.hyp.p_param if hasattr(self.hyp, 'p_param') else 2.0
-                        yager_sum = torch.pow(1 - fuzzy_values, p_param)
-                        loss_const[:, req_id] = 1 - torch.min(torch.tensor(1.0, device=self.device), torch.pow(torch.sum(yager_sum, axis=-1), 1 / p_param))
+                        loss_const[:,req_id] = apply_tnorm_iterative2(yager_tnorm_batch, fuzzy_values)
                     elif self.hyp.req_type == "frank":
-                        frank_prod = (torch.pow(2, fuzzy_values) - 1)
-                        loss_const[:, req_id] = torch.log2(1 + torch.prod(frank_prod, axis=-1) / (2 - 1))
+                        loss_const[:,req_id] = apply_tnorm_iterative2(frank_tnorm, fuzzy_values)
+                    elif self.hyp.req_type == "sugeno_weber":
+                        loss_const[:,req_id] = apply_tnorm_iterative2(sugeno_weber_tnorm, fuzzy_values)
+                    # elif self.hyp.req_type == "dombi": # <- Not working
+                    #     loss_const[:,req_id] = apply_tnorm_iterative2(dombi_tnorm_batch, fuzzy_values)
+                    elif self.hyp.req_type == "aczel_alsina":
+                        loss_const[:,req_id] = apply_tnorm_iterative2(aczel_alsina_tnorm_batch, fuzzy_values)
+                    elif self.hyp.req_type == "hamacher":
+                        loss_const[:,req_id] = apply_tnorm_iterative2(hamacher_tnorm, fuzzy_values)
+                    elif self.hyp.req_type == "schweizer_sklar":
+                        loss_const[:,req_id] = apply_tnorm_iterative2(schweizer_sklar_tnorm_batch, fuzzy_values)
+                        
                     else:
-                        loss_const[:,req_id] = torch.prod(fuzzy_values, axis=-1)
-
-
+                        raise ValueError
+                
+                if torch.isnan(loss_const).any():
+                    print("Nan values in loss_const")
+                    torch.nan_to_num(loss_const, nan=0.0)
+                    exit()
                 current_loss = loss_const.sum() / (loss_const.shape[0] * loss_const.shape[1])
-                if self.hyp.reinforcement_loss and current_loss.item() != 0:
-                    t_norm_values[self.hyp.req_type] += learning_rate * (1 / current_loss.item())
 
                 # Check if current_loss is nan
                 if torch.isnan(current_loss):
@@ -235,33 +224,71 @@ class MOD_YOLOLoss:
                         writer.writerow([self.hyp.req_type, current_loss.item()])
 
                 loss[3] = current_loss
+                
 
-                previous_loss = previous_losses[self.hyp.req_type ]
-                if previous_loss != float('inf'):
-                    normalized_update = (previous_loss - current_loss.item()) / previous_loss
-                    t_norm_values[self.hyp.req_type ] += learning_rate * normalized_update
-                previous_losses[self.hyp.req_type ] = current_loss.item()
+                if self.hyp.reinforcement_loss:
+                    # first_update = True
+                    epsilon = 1e-9
+
+                    previous_loss = previous_losses[self.hyp.req_type]
+                    
+                    if previous_loss == float('inf'):
+                        previous_losses[self.hyp.req_type] = current_loss.item()
+                    else:
+                        if previous_loss < epsilon:
+                            previous_loss = epsilon                            
+                                
+                        normalized_update = (previous_loss - current_loss.item()) / (previous_loss)
+
+                        if t_norm_values[self.hyp.req_type] == float('inf'):
+                            t_norm_values[self.hyp.req_type] = delta_rl * normalized_update
+                        else:
+                            # t_norm_values[self.hyp.req_type] += delta_rl * normalized_update
+                            t_norm_values[self.hyp.req_type] = delta_rl * t_norm_values[self.hyp.req_type] + (1 - delta_rl) * normalized_update
+                        previous_losses[self.hyp.req_type] = current_loss.item()
 
         with torch.no_grad():
-            pred_const = pred_const.detach()
-            max_pred_const = pred_const.max(-1)[0] >= 0.2
-            if max_pred_const.sum().item() > 0:
-                pred_const = (pred_const[max_pred_const] >= 0.2).float().detach()
-                pred_const = torch.cat([pred_const, 1-pred_const], axis=-1)
+            pred_const = pred_scores.sigmoid()
+            pred_const = (pred_const >= 0.3).float().detach()
+            if pred_const.sum().item() > 0:
+                # Number of boxes that are above the threshold of 0.3 divided by the total number of boxes
+                pred_const_max = pred_const.max(-1)[0]
+                loss[6] = pred_const_max.mean()
+                # Number of labels that are above the threshold of 0.3 divided by the total number of labels
+                loss[7] = pred_const.sum() / (pred_const_max > 0).sum()
+
+
+                pred_const = pred_const[pred_const.sum(-1) > 0]
+                pred_const = torch.cat([pred_const, 1-pred_const], axis=-1) # Invert the values
                 loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]))
                 for req_id in range(self.constraints.shape[0]):
-                    req_ind = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
-                    fuzzy_values = 1 - pred_const[:,req_ind]
-                    loss_const[:,req_id] = torch.min(fuzzy_values, axis=-1)[0]
-                loss[4] = loss_const.sum() / (loss_const.shape[0] * loss_const.shape[1])
-                loss[5] = (loss_const.max(-1)[0]).sum() / (loss_const.shape[0])
+                    req_indices = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
+                    loss_const[:,req_id] = 1 - torch.max(pred_const[:,req_indices], axis=-1)[0] # Violation of constraints
+                
+                loss[4] = (loss_const).mean()
+                loss[5] = (loss_const.sum(-1) > 0).float().mean()
+                
+            else:
+                loss[7] = 1
+
 
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
         loss[3] *= self.hyp.req_loss # req_loss gain
+        
+        # def is_main_process():
+        #     import torch.distributed as dist
+        #     return not dist.is_initialized() or dist.get_rank() == 0
+        
+        # if self.hyp.reinforcement_loss and is_main_process:
+        #     import json
+        #     with open(f"t_norm_usage.txt", 'a+') as t_norm_usage_file:
+        #         t_norm_usage_file.write('\n')
+        #         t_norm_usage_file.write(json.dumps(self.t_norm_usage))
+        
 
-        return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
+        return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl, rql)
 
 
 
@@ -525,3 +552,59 @@ class MOD_YOLOTaskAlignedAssigner(nn.Module):
 def int2binary(x, bits):
     mask = 2**torch.arange(bits).to(x.device, x.dtype)
     return x.unsqueeze(-1).bitwise_and(mask).ne(0).byte()
+
+
+
+from ultralytics.utils.tal import bbox2dist
+import torch.nn.functional as F
+
+
+class BboxLoss(nn.Module):
+    """Criterion class for computing training losses during training."""
+
+    def __init__(self, reg_max=16):
+        """Initialize the BboxLoss module with regularization maximum and DFL settings."""
+        super().__init__()
+        self.dfl_loss = DFLoss(reg_max) if reg_max > 1 else None
+
+    def forward(self, pred_dist, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask):
+        """IoU loss."""
+        weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
+        iou = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
+        loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
+
+        # DFL loss
+        if self.dfl_loss:
+            target_ltrb = bbox2dist(anchor_points, target_bboxes, self.dfl_loss.reg_max - 1)
+            loss_dfl = self.dfl_loss(pred_dist[fg_mask].view(-1, self.dfl_loss.reg_max), target_ltrb[fg_mask]) * weight
+            loss_dfl = loss_dfl.sum() / target_scores_sum
+        else:
+            loss_dfl = torch.tensor(0.0).to(pred_dist.device)
+
+        return loss_iou, loss_dfl
+
+
+class DFLoss(nn.Module):
+    """Criterion class for computing DFL losses during training."""
+
+    def __init__(self, reg_max=16) -> None:
+        """Initialize the DFL module."""
+        super().__init__()
+        self.reg_max = reg_max
+
+    def __call__(self, pred_dist, target):
+        """
+        Return sum of left and right DFL losses.
+
+        Distribution Focal Loss (DFL) proposed in Generalized Focal Loss
+        https://ieeexplore.ieee.org/document/9792391
+        """
+        target = target.clamp_(0, self.reg_max - 1 - 0.01)
+        tl = target.long()  # target left
+        tr = tl + 1  # target right
+        wl = tr - target  # weight left
+        wr = 1 - wl  # weight right
+        return (
+            F.cross_entropy(pred_dist, tl.view(-1), reduction="none").view(tl.shape) * wl
+            + F.cross_entropy(pred_dist, tr.view(-1), reduction="none").view(tl.shape) * wr
+        ).mean(-1, keepdim=True)

@@ -45,6 +45,14 @@ class ROAD_R:
             assert False, "Invalid task number"
 
 
+    def getLabelList(self, label_info, frame_now, box_name):
+        id_labels = []
+        id_labels += filter_labels(frame_now['annos'][box_name]['agent_ids'], label_info['all_agent_labels'], label_info['agent_labels'], 0) 
+        id_labels += filter_labels(frame_now['annos'][box_name]['action_ids'], label_info['all_action_labels'], label_info['action_labels'], len(label_info['agent_labels']))
+        id_labels += filter_labels(frame_now['annos'][box_name]['loc_ids'], label_info['all_loc_labels'], label_info['loc_labels'], len(label_info['agent_labels']) + len(label_info['action_labels']))
+        return id_labels
+    
+
     def __init__(self, path="../../road-dataset") -> None:
         self.path = path
 
