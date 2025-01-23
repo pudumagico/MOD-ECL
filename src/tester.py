@@ -20,7 +20,9 @@ import torchmetrics
 
 
 import csv
+from visualizer import Visualizer
 
+import cv2
 
 def track(
         prob_self,
@@ -81,6 +83,7 @@ def getArgs():
     parser.add_argument("-pred", "--prediction", action="store_true", help="Use prediction without tracking")
     parser.add_argument("-maxsat", "--maxsat", action="store_true", help="Use MaxSAT solvers to validate results")
     parser.add_argument("-iou", "--iou", type=float, default=0.7, help="IOU threshold for tracking")
+    parser.add_argument("-v", "--visualizer", type=str, default=None, help="Video to visualize")
     
     return parser.parse_args()
 
@@ -146,6 +149,24 @@ def calcViolation2(full_conf, constraints, threshold):
 
     return float(full_violation), float(perbox_violation), int(full_conf.shape[0])
 
+
+def getLabels(dataset):
+    if dataset == "road-r":
+        agent_labels = ['Ped', 'Car', 'Cyc', 'Mobike', 'MedVeh', 'LarVeh', 'Bus', 'EmVeh', 'TL', 'OthTL']
+        action_labels = ['Red', 'Amber', 'Green', 'MovAway', 'MovTow', 'Mov', 'Brake', 'Stop', 'IncatLft', 'IncatRht', 'HazLit', 'TurLft', 'TurRht', 'Ovtak', 'Wait2X', 'XingFmLft', 'XingFmRht', 'Xing', 'PushObj']
+        loc_labels = ['VehLane', 'OutgoLane', 'OutgoCycLane', 'IncomLane', 'IncomCycLane', 'Pav', 'LftPav', 'RhtPav', 'Jun', 'xing', 'BusStop', 'parking']
+        return agent_labels + action_labels + loc_labels
+    elif dataset == "road++r":
+        agent_labels = ['Ped', 'Car', 'Cyc', 'Mobike', 'MedVeh', 'LarVeh', 'Bus', 'EmVeh', 'TL']
+        action_labels = ['Red', 'Amber', 'Green', 'MovAway', 'MovTow', 'Mov', 'Brake', 'Stop', 'IncatLft', 'IncatRht', 'HazLit', 'TurLft', 'TurRht', 'Ovtak', 'Wait2X', 'XingFmLft', 'XingFmRht', 'Xing', 'PushObj']
+        loc_labels = ['VehLane', 'OutgoLane', 'OutgoCycLane', 'IncomLane', 'IncomCycLane', 'Pav', 'LftPav', 'RhtPav', 'Jun', 'xing', 'BusStop', 'parking']
+        plus_labels = ['OutgoBusLane', 'IncomBusLane', 'rightParking', 'LftParking', 'Rev', 'SmalVeh', 'MovLft', 'MovRht']
+        return agent_labels + action_labels + loc_labels + plus_labels
+    else:
+        assert False, "Dataset not supported"
+
+
+
 def main():
     args = getArgs()
     if args.dataset == "road-r":
@@ -179,7 +200,7 @@ def main():
 
     model = YOLO(f"../runs/{args.model}/weights/best.pt")
 
-    if args.stats:
+    if args.stats or args.visualizer is not None:
         import json
         label_info = {}
         if gt_folder.endswith('.json'):
@@ -195,6 +216,7 @@ def main():
 
     predictor = MOD_Predictor()
     predictor.dataset_type = args.dataset
+    predictor.nc = len(getLabels(args.dataset))
     model.predictor = predictor
     model.track = types.MethodType(track, model)
     if args.task == 2 or args.maxsat:
@@ -210,7 +232,28 @@ def main():
 
     mode = model.track if not args.prediction else model.predict
 
+    if args.visualizer is not None:
+        vis = Visualizer(
+            constraints=constraints,
+            dataset_folder=args.dataset_path,
+            output_folder = f"../runs/{args.model}/out",
+            label_names = getLabels(args.dataset),
+            processed = args.maxsat,
+            threshold = args.conf
+        )
+        # Usage example
+        # visualizer = Visualizer(
+        #     constraints_path="../MOD-CL-prev/YOLO/constraints.npy",
+        #     dataset_folder="../ROAD++/train/rgb-images/"
+        # )
+        # visualizer.visualize(
+        #     data_paths=["../T-NormRL/result_output/final_results_task4.pkl", "../T-NormRL/result_output/final_results_task4.pkl"],
+        #     videos=["train_00000"]
+        # )
+
     for video_name in videos:
+        if args.visualizer is not None and video_name != args.visualizer:
+            continue
         test = mode(os.path.join(args.dataset_path, folder, video_name + '.mp4'), save=args.save, save_txt=False, save_conf=False, device=args.cuda, project="../runs/debug", line_width=3, stream=True, tracker=args.tracker, conf=args.conf, max_det=300, workers=8, iou=args.iou)
         # test = model.predict(os.path.join(args.dataset_path, "road_test/rgb-images/", video_name + '/04639.jpg'), save=args.save, save_txt=False, save_conf=False, device=args.cuda, project="../runs/debug", line_width=3, stream=False, conf=args.conf, max_det=300)
         # exit()
@@ -313,12 +356,18 @@ def main():
                     bbox_db = {}
                     bbox_db['bbox'] = res.boxes.xyxy[bbox_id].tolist()
 
-                    if args.task != 2:
+                    if not args.maxsat: # != task 2
                         bbox_db['labels'] = res.boxes.full_conf[bbox_id].tolist()
                     else:
                         bbox_db['labels'] = maxsat_v.correct_v1(res.boxes.full_conf[bbox_id].tolist(), threshold=args.threshold)
-                    
                     frame_db.append(bbox_db)
+                
+                if args.visualizer is not None and res_id % 10 == 0 and len(res.boxes) > 0:# and 'annos' in label_info['db'][video_name]['frames'][str(res_id+1)] and len(label_info['db'][video_name]['frames'][str(res_id+1)]['annos']) > 0:
+                    print("Processing frame", res_id)
+                    # orig_img is a numpy array. Transform this into a cv2 image
+                    img = res.orig_img#cv2.cvtColor(res.orig_img, cv2.COLOR_BGR2RGB)
+                    #process_frame(self, image, bbox_data, frame_name, video, data_temp):
+                    vis.process_frame(img, frame_db, frame_name, video_name, label_info['db'][video_name]['frames'][str(res_id+1)])
 
                 db[frame_name] = frame_db
 
