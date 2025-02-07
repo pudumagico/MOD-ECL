@@ -288,7 +288,7 @@ class MOD_YOLOLoss:
                 t_norm_usage_file.write('\n')
                 t_norm_usage_file.write(json.dumps(self.t_norm_usage))
         
-        if self.hyp.req_loss >= 0:
+        if self.hyp.req_loss > 0:
             return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl, rql)
         else:
             return loss[:3].sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
