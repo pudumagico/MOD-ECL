@@ -34,6 +34,7 @@ def getArgs():
     parser.add_argument("-rl", "--reinforcement-loss", action="store_true", help="Use Reinforcement Learning Loss")
     parser.add_argument("-rnd", "--req_num_detect", type=int, default=64, help="Number of required detections")
     parser.add_argument("-rs", "--req_scheduler", type=float, default=0, help="Scheduler for required detections")
+    parser.add_argument("-rlr", "--req_loss_ratio", type=float, default=0.0, help="Requirement loss ratio")
 
     return parser.parse_args()
 
@@ -42,9 +43,19 @@ def on_train_epoch_end(trainer):
     """Callback function to be executed at the end of each training epoch."""
     # Epochs start at 0
     hyp = trainer.args
-    # At epoch 2, modify the required loss by a factor of req_scheduler
-    if trainer.epoch >= 2 and hyp.req_scheduler > 0:
-        trainer.args.req_loss = hyp.req_loss * hyp.req_scheduler
+    if hyp.req_loss_ratio > 0 and trainer.epoch == 0:
+        req_loss = trainer.tloss[3]
+        normal_loss = trainer.tloss[:3].sum()
+
+        # How can we determine the effect of the ratio?
+        # For some t-norms, the value can drastically go down...
+        
+        hyp.req_loss = float(normal_loss / (req_loss/hyp.req_loss) * hyp.req_loss_ratio)
+        print(f"Confirmed new req_loss to be {hyp.req_loss}")
+
+    # # At epoch 2, modify the required loss by a factor of req_scheduler
+    # if trainer.epoch >= 2 and hyp.req_scheduler > 0:
+    #     trainer.args.req_loss = hyp.req_loss * hyp.req_scheduler
 
 
 def main():
@@ -80,10 +91,13 @@ def main():
     folder_args.append(f"reqloss{args.req_loss}")
     if args.reinforcement_loss:
         folder_args.append("rl")
-    elif args.req_loss != 0:
+    elif args.req_loss != 0 or args.req_loss_ratio > 0:
         folder_args.append(args.req_type)
     else:
         folder_args.append("vanilla")
+    
+    if args.req_loss_ratio > 0 and args.req_loss >= 0:
+        folder_args.append(f"rlr{args.req_loss_ratio}")
     
     folder_args.append("rsched" + str(args.req_scheduler))
     folder_args = "_".join(folder_args)
@@ -91,7 +105,9 @@ def main():
     try:
         if not args.no_augment:
             trainer = MOD_YOLOTrainer(overrides={"device": args.cuda, "project": f"../runs/nparam/{folder_args}", "data":f"../config/dataset_task{args.task}.yaml", "task":"detect", "model":f"../models/{args.basemodel}.pt",
-                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 24, "max_det": args.max_det, "amp": True, "cache": False, "lrf": args.lrf, "req_num_detect": args.req_num_detect, "req_scheduler": args.req_scheduler, "const_path": const_path})
+                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss,
+                                                "workers": args.workers, "freeze": args.freeze, "batch": 24, "max_det": args.max_det, "amp": True, "cache": False, "lrf": args.lrf, "req_num_detect": args.req_num_detect, 
+                                                "req_scheduler": args.req_scheduler, "const_path": const_path, "val": False, "req_loss_ratio": args.req_loss_ratio})
 
     except Exception as e:
         from ultralytics.utils import DEFAULT_CFG_PATH

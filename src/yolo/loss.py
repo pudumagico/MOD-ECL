@@ -33,8 +33,8 @@ previous_losses = {key: float('inf') for key in t_norm_values.keys()}
 # Learning rate for updating the rl values
 
 # Exploration probability
-beta_rl = 0.5
-delta_rl = 0.5
+beta_rl = 0.25
+delta_rl = 0.25
 
 # Function to select t-norm based on values with ε-greedy exploration
 def select_t_norm(beta):
@@ -275,7 +275,8 @@ class MOD_YOLOLoss:
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
-        loss[3] *= self.hyp.req_loss # req_loss gain
+        if self.hyp.req_loss >= 0:
+            loss[3] *= self.hyp.req_loss # req_loss gain
         
         def is_main_process():
             import torch.distributed as dist
@@ -287,8 +288,10 @@ class MOD_YOLOLoss:
                 t_norm_usage_file.write('\n')
                 t_norm_usage_file.write(json.dumps(self.t_norm_usage))
         
-
-        return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl, rql)
+        if self.hyp.req_loss >= 0:
+            return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl, rql)
+        else:
+            return loss[:3].sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
 
 
 

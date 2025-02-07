@@ -285,7 +285,6 @@ def main():
                             full_violation_now.append(violations[0])
                             perbox_violation_now.append(violations[1])
                             pred_box_num_now += violations[2]
-                
                     pred = dict(
                         boxes=torch.stack(pred_box).to(res.boxes.xyxy.device),
                         labels=torch.stack(pred_class).to(res.boxes.xyxy.device),
