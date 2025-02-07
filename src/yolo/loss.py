@@ -275,7 +275,7 @@ class MOD_YOLOLoss:
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
-        if self.hyp.req_loss >= 0:
+        if self.hyp.req_loss > 0:
             loss[3] *= self.hyp.req_loss # req_loss gain
         
         def is_main_process():
