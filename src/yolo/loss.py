@@ -147,7 +147,7 @@ class MOD_YOLOLoss:
                 pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
         
-        if self.hyp.req_loss != 0:
+        if self.hyp.req_loss != 0 or self.hyp.req_loss_ratio > 0:
             pred_const = pred_scores.sigmoid()
             max_pred = pred_const.max(-1)[0]
             

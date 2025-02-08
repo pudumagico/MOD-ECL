@@ -49,7 +49,7 @@ def on_train_epoch_end(trainer):
 
         # How can we determine the effect of the ratio?
         # For some t-norms, the value can drastically go down...
-        
+        print(hyp.req_loss, req_loss, normal_loss)
         if hyp.req_loss == 0:
             hyp.req_loss = float(normal_loss / req_loss * hyp.req_loss_ratio)
         else:
