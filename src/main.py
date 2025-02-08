@@ -50,7 +50,10 @@ def on_train_epoch_end(trainer):
         # How can we determine the effect of the ratio?
         # For some t-norms, the value can drastically go down...
         
-        hyp.req_loss = float(normal_loss / (req_loss/hyp.req_loss) * hyp.req_loss_ratio)
+        if hyp.req_loss == 0:
+            hyp.req_loss = float(normal_loss / req_loss * hyp.req_loss_ratio)
+        else:
+            hyp.req_loss = float(normal_loss / (req_loss/hyp.req_loss) * hyp.req_loss_ratio)
         print(f"Confirmed new req_loss to be {hyp.req_loss}")
 
     # # At epoch 2, modify the required loss by a factor of req_scheduler
