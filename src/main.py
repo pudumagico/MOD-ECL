@@ -43,18 +43,22 @@ def on_train_epoch_end(trainer):
     """Callback function to be executed at the end of each training epoch."""
     # Epochs start at 0
     hyp = trainer.args
-    if hyp.req_loss_ratio > 0 and trainer.epoch == 0:
-        req_loss = trainer.tloss[3]
-        normal_loss = trainer.tloss[:3].sum()
-
-        # How can we determine the effect of the ratio?
-        # For some t-norms, the value can drastically go down...
-        print(hyp.req_loss, req_loss, normal_loss)
-        if hyp.req_loss == 0:
-            hyp.req_loss = float(normal_loss / req_loss * hyp.req_loss_ratio)
-        else:
-            hyp.req_loss = float(normal_loss / (req_loss/hyp.req_loss) * hyp.req_loss_ratio)
-        print(f"Confirmed new req_loss to be {hyp.req_loss}")
+    if hyp.req_loss_ratio > 0:
+        # If the differences are very high, then the ratio should be lower. If not, it should be higher.
+        if trainer.epoch == 0:
+            hyp.req_loss = 1.0
+            trainer.init_req_loss = trainer.tloss[3]
+        elif trainer.epoch == 1:
+            loss_diff = trainer.tloss[3]/trainer.init_req_loss
+            
+            req_loss = trainer.tloss[3]
+            normal_loss = trainer.tloss[:3].sum()
+            
+            # How can we determine the effect of the ratio?
+            # For some t-norms, the value can drastically go down...
+            print(hyp.req_loss, req_loss, normal_loss)
+            hyp.req_loss = float(normal_loss / (req_loss/hyp.req_loss) * hyp.req_loss_ratio * loss_diff)
+            print(f"Confirmed new req_loss to be {hyp.req_loss}")
 
     # # At epoch 2, modify the required loss by a factor of req_scheduler
     # if trainer.epoch >= 2 and hyp.req_scheduler > 0:
