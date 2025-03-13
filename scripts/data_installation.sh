@@ -1,5 +1,5 @@
 cd ../../
-git clone https://github.com/gurkirt/road-dataset.git
+# git clone https://github.com/gurkirt/road-dataset.git
 
 cd ./road-dataset/road/
 
@@ -13,4 +13,4 @@ rm videos.zip
 cd ../
 python extract_videos2jpgs.py ./road/
 
-rm -rf .git*
+# rm -rf .git*
