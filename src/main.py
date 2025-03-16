@@ -77,6 +77,7 @@ def main():
     folder_args = []
     folder_args.append(f"task{args.task}")
     folder_args.append(f"e{args.max_epochs}")
+    folder_args.append(f"{args.basemodel}")
     folder_args.append(f"reqloss{args.req_loss}")
     if args.reinforcement_loss:
         folder_args.append("rl")
