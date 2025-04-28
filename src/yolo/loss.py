@@ -33,8 +33,6 @@ previous_losses = {key: float('inf') for key in t_norm_values.keys()}
 # Learning rate for updating the rl values
 
 # Exploration probability
-beta_rl = 0.1
-delta_rl = 0.5
 
 # Function to select t-norm based on values with ε-greedy exploration
 def select_t_norm(beta):
@@ -67,6 +65,10 @@ class MOD_YOLOLoss:
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
         self.constraints = torch.from_numpy(np.load(h.const_path)).to_sparse()
         self.t_norm_usage = {key: 0 for key in t_norm_values.keys()}
+
+        self.beta_rl = h.beta_rl
+        self.delta_rl = h.delta_rl
+        self.rl_mode = h.rl_mode
 
     def preprocess(self, targets, batch_size, scale_tensor, num_classes):
         """Preprocesses the target counts and matches with the input batch size to output a tensor."""
@@ -147,6 +149,32 @@ class MOD_YOLOLoss:
                 pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
         
+
+
+        with torch.no_grad():
+            pred_const = pred_scores.sigmoid()
+            pred_const = (pred_const >= 0.3).float().detach()
+            if pred_const.sum().item() > 0:
+                # Number of boxes that are above the threshold of 0.3 divided by the total number of boxes
+                pred_const_max = pred_const.max(-1)[0]
+                loss[6] = pred_const_max.mean()
+                # Number of labels that are above the threshold of 0.3 divided by the total number of labels
+                loss[7] = pred_const.sum() / (pred_const_max > 0).sum()
+
+
+                pred_const = pred_const[pred_const.sum(-1) > 0]
+                pred_const = torch.cat([pred_const, 1-pred_const], axis=-1) # Invert the values
+                loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]))
+                for req_id in range(self.constraints.shape[0]):
+                    req_indices = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
+                    loss_const[:,req_id] = 1 - torch.max(pred_const[:,req_indices], axis=-1)[0] # Violation of constraints
+                
+                loss[4] = (loss_const).mean()
+                loss[5] = (loss_const.sum(-1) > 0).float().mean()
+                
+            else:
+                loss[7] = 1
+        
         if self.hyp.req_loss != 0:
             pred_const = pred_scores.sigmoid()
             max_pred = pred_const.max(-1)[0]
@@ -168,7 +196,7 @@ class MOD_YOLOLoss:
                 loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]), device=self.device)
 
                 if self.hyp.reinforcement_loss:
-                    self.hyp.req_type = select_t_norm(beta_rl)
+                    self.hyp.req_type = select_t_norm(self.beta_rl)
                     self.t_norm_usage[self.hyp.req_type] += 1
 
                 for req_id in range(self.constraints.shape[0]):
@@ -225,6 +253,8 @@ class MOD_YOLOLoss:
 
                 loss[3] = current_loss
                 
+                if self.rl_mode == "c_violation":
+                    current_loss = loss[4]
 
                 if self.hyp.reinforcement_loss:
                     # first_update = True
@@ -241,35 +271,11 @@ class MOD_YOLOLoss:
                         normalized_update = (previous_loss - current_loss.item()) / (previous_loss)
 
                         if t_norm_values[self.hyp.req_type] == float('inf'):
-                            t_norm_values[self.hyp.req_type] = delta_rl * normalized_update
+                            t_norm_values[self.hyp.req_type] = self.delta_rl * normalized_update
                         else:
                             # t_norm_values[self.hyp.req_type] += delta_rl * normalized_update
-                            t_norm_values[self.hyp.req_type] = delta_rl * t_norm_values[self.hyp.req_type] + (1 - delta_rl) * normalized_update
+                            t_norm_values[self.hyp.req_type] = self.delta_rl * t_norm_values[self.hyp.req_type] + (1 - self.delta_rl) * normalized_update
                         previous_losses[self.hyp.req_type] = current_loss.item()
-
-        with torch.no_grad():
-            pred_const = pred_scores.sigmoid()
-            pred_const = (pred_const >= 0.3).float().detach()
-            if pred_const.sum().item() > 0:
-                # Number of boxes that are above the threshold of 0.3 divided by the total number of boxes
-                pred_const_max = pred_const.max(-1)[0]
-                loss[6] = pred_const_max.mean()
-                # Number of labels that are above the threshold of 0.3 divided by the total number of labels
-                loss[7] = pred_const.sum() / (pred_const_max > 0).sum()
-
-
-                pred_const = pred_const[pred_const.sum(-1) > 0]
-                pred_const = torch.cat([pred_const, 1-pred_const], axis=-1) # Invert the values
-                loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]))
-                for req_id in range(self.constraints.shape[0]):
-                    req_indices = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
-                    loss_const[:,req_id] = 1 - torch.max(pred_const[:,req_indices], axis=-1)[0] # Violation of constraints
-                
-                loss[4] = (loss_const).mean()
-                loss[5] = (loss_const.sum(-1) > 0).float().mean()
-                
-            else:
-                loss[7] = 1
 
 
         loss[0] *= self.hyp.box  # box gain

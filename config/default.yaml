@@ -124,6 +124,9 @@ reinforcement_loss: False
 req_num_detect: 128
 req_scheduler: 0.01
 const_path: ../constraints/constraints.npy
+beta_rl: 0.1
+delta_rl: 0.5
+rl_mode: c_violation
 copy_paste_mode: "flip" # (str) the method to do copy_paste augmentation (flip, mixup)
 
 # Custom config.yaml ---------------------------------------------------------------------------------------------------

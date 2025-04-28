@@ -146,8 +146,7 @@ def calcViolation2(full_conf, constraints, threshold):
     # Compute full and per-box violations
     full_violation = loss_const.sum() / num_constraints
     perbox_violation = (loss_const.sum(dim=-1) > 0).float().sum()
-
-    return float(full_violation), float(perbox_violation), int(full_conf.shape[0])
+    return float(full_violation), float(perbox_violation), int(full_conf.shape[0]), loss_const.sum(dim=-1) == 0
 
 
 def getLabels(dataset):
@@ -224,13 +223,16 @@ def main():
     
     db_final = {}
     frame_map = []
+    correct_frame_map = []
     perbox_violation = []
     full_violation = []
     pred_box_num = []
 
     pred_frame_num = []
+    correct_pred_frame_num = []
 
     mode = model.track if not args.prediction else model.predict
+    metric = torchmetrics.detection.MeanAveragePrecision('xyxy')
 
     if args.visualizer is not None:
         vis = Visualizer(
@@ -262,6 +264,7 @@ def main():
         full_violation_now = []
         pred_box_num_now = 0
         frame_map_now = []
+        correct_frame_map_now = []
 
         for res_id, res in enumerate(test):
             if args.save:
@@ -302,6 +305,7 @@ def main():
                 pred_box = []
                 pred_class = []
                 pred_conf = []
+                box_id = []
 
                 if len(res.boxes) != 0:
                     for box in range(len(res.boxes)):
@@ -310,6 +314,7 @@ def main():
                                 pred_box.append(res.boxes.xyxy[box])
                                 pred_class.append(torch.tensor(cl, device=res.boxes.xyxy.device))
                                 pred_conf.append(torch.tensor(1.0, device=res.boxes.xyxy.device))
+                                box_id.append(box)
                             full_violation_now.append(0)
                             perbox_violation_now.append(0)
                             pred_box_num_now += len(res.boxes)
@@ -319,6 +324,7 @@ def main():
                                 pred_box.append(res.boxes.xyxy[box])
                                 pred_class.append(cl[0])
                                 pred_conf.append(res.boxes.full_conf[box,cl[0]])
+                                box_id.append(box)
                                 # violation_now = calcViolation(res.boxes.full_conf[box], constraints, args.conf)
                                 # violations[0] += violation_now[0]
                                 # violations[1] += violation_now[1]
@@ -335,6 +341,14 @@ def main():
                         scores=torch.stack(pred_conf).to(res.boxes.xyxy.device)
                     )
 
+                    correct_labels = violations[3][box_id]
+
+                    correct_pred = dict(
+                        boxes=torch.stack(pred_box).to(res.boxes.xyxy.device)[correct_labels],
+                        labels=torch.stack(pred_class).to(res.boxes.xyxy.device)[correct_labels],
+                        scores=torch.stack(pred_conf).to(res.boxes.xyxy.device)[correct_labels]
+                    )
+
 
                 else:
                     pred = dict(
@@ -342,13 +356,25 @@ def main():
                         labels=torch.tensor([], device=res.boxes.xyxy.device),
                         scores=torch.tensor([], device=res.boxes.xyxy.device)
                     )
+
+                    correct_pred = dict(
+                        boxes=torch.tensor([], device=res.boxes.xyxy.device),
+                        labels=torch.tensor([], device=res.boxes.xyxy.device),
+                        scores=torch.tensor([], device=res.boxes.xyxy.device)
+                    )
                 
                 if len(gt['boxes']) != 0 or len(pred['boxes']) != 0:
-                    metric = torchmetrics.detection.MeanAveragePrecision('xyxy')
+                    metric.reset()
                     out = float(metric.forward([pred], [gt])['map_50'])
                     if out < 0:
                         out = 0
                     frame_map_now.append(out)
+
+                    metric.reset()
+                    out = float(metric.forward([correct_pred], [gt])['map_50'])
+                    if out < 0:
+                        out = 0
+                    correct_frame_map_now.append(out)
 
 
             else:
@@ -377,17 +403,21 @@ def main():
             pred_box_num.append(pred_box_num_now)
             frame_map.append(np.sum(frame_map_now))
             pred_frame_num.append(len(frame_map_now))
+            correct_frame_map.append(np.sum(correct_frame_map_now))
+            correct_pred_frame_num.append(len(correct_frame_map_now))
 
             print(f"Video: {video_name}")
             print(f"Mean mAP: {np.sum(frame_map)/np.sum(pred_frame_num)}")
+            print(f"Mean correct mAP: {np.sum(correct_frame_map)/np.sum(correct_pred_frame_num)}")
             print(f"Mean full violation: {np.sum(full_violation)/np.sum(pred_box_num)}")
             print(f"Mean perbox violation: {np.sum(perbox_violation/np.sum(pred_box_num))}")
             with open(f"../runs/{args.model}/stats_{'track' if not args.prediction else 'pred'}{'_maxsat' if args.maxsat else ''}_conf={args.conf}.csv", 'w') as f:
                 csv_writer = csv.writer(f)
                 csv_writer.writerow(["Video", "Mean mAP", "Mean full violation", "Mean perbox violation", "Total boxes", "Total frames", "Total violations"])
-                for v, f, p, pb, pbn, pfn in zip(videos, frame_map, full_violation, perbox_violation, pred_box_num, pred_frame_num):
-                    csv_writer.writerow([v, f/pfn, p/pbn, pb/pbn, pbn, pfn, pb])
-                csv_writer.writerow(["Total", np.sum(frame_map)/np.sum(pred_frame_num), np.sum(full_violation)/np.sum(pred_box_num), np.sum(perbox_violation)/np.sum(pred_box_num), np.sum(pred_box_num), np.sum(pred_frame_num), np.sum(perbox_violation)])
+                for v, f, p, pb, pbn, pfn, cfm, cpfn in zip(videos, frame_map, full_violation, perbox_violation, pred_box_num, pred_frame_num, correct_frame_map, correct_pred_frame_num):
+                    csv_writer.writerow([v, f/pfn, p/pbn, pb/pbn, cfm/cpfn, pbn, pfn, pb, cpfn])
+                csv_writer.writerow(["Total", np.sum(frame_map)/np.sum(pred_frame_num), np.sum(full_violation)/np.sum(pred_box_num), np.sum(perbox_violation)/np.sum(pred_box_num), np.sum(correct_frame_map)/np.sum(correct_pred_frame_num), \
+                                     np.sum(pred_box_num), np.sum(pred_frame_num), np.sum(perbox_violation), np.sum(correct_pred_frame_num)])
         else:
             db_final[video_name] = db
             with open(f"../result_output/final_results_task{args.task}.pkl", 'wb') as outfile:

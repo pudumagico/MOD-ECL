@@ -30,7 +30,9 @@ def getArgs():
     parser.add_argument("-req-type", "--req-type", type=str, default="product", help="Requirements Loss type")
     parser.add_argument("-no_augment", "--no_augment", action="store_true", help="Use Augmentation")
     parser.add_argument("-max_det", "--max_det", type=int, default=300, help="Maximum detections")
-
+    parser.add_argument("-beta_rl", type=float, default=0.1, help="Beta for RL Loss")
+    parser.add_argument("-delta_rl", type=float, default=0.5, help="Delta for RL Loss")
+    parser.add_argument("-rl_mode", type=str, default="normal", help="Requirements Loss type")
     parser.add_argument("-rl", "--reinforcement-loss", action="store_true", help="Use Reinforcement Learning Loss")
     parser.add_argument("-rnd", "--req_num_detect", type=int, default=64, help="Number of required detections")
     parser.add_argument("-rs", "--req_scheduler", type=float, default=0, help="Scheduler for required detections")
@@ -81,6 +83,9 @@ def main():
     folder_args.append(f"reqloss{args.req_loss}")
     if args.reinforcement_loss:
         folder_args.append("rl")
+        folder_args.append(f"beta{args.beta_rl}")
+        folder_args.append(f"delta{args.delta_rl}")
+        folder_args.append(f"mode{args.rl_mode}")
     elif args.req_loss != 0:
         folder_args.append(args.req_type)
     else:
@@ -92,7 +97,7 @@ def main():
     try:
         if not args.no_augment:
             trainer = MOD_YOLOTrainer(overrides={"device": args.cuda, "project": f"../runs/nparam/{folder_args}", "data":f"../config/dataset_task{args.task}.yaml", "task":"detect", "model":f"../models/{args.basemodel}.pt",
-                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 24, "max_det": args.max_det, "amp": True, "cache": False, "lrf": args.lrf, "req_num_detect": args.req_num_detect, "req_scheduler": args.req_scheduler, "const_path": const_path, "val": False})
+                                                "optimizer":args.optimizer, "lr0": args.lr, "epochs": args.max_epochs, "close_mosaic": 0, "req_loss": args.req_loss, "req_type": args.req_type, "reinforcement_loss": args.reinforcement_loss, "workers": args.workers, "freeze": args.freeze, "batch": 24, "max_det": args.max_det, "amp": True, "cache": False, "lrf": args.lrf, "req_num_detect": args.req_num_detect, "req_scheduler": args.req_scheduler, "const_path": const_path, "val": False, "beta_rl": args.beta_rl, "delta_rl": args.delta_rl, "rl_mode": args.rl_mode})
 
     except Exception as e:
         from ultralytics.utils import DEFAULT_CFG_PATH
