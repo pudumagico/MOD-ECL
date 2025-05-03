@@ -170,12 +170,26 @@ def aczel_alsina_tnorm(a, b, p=1):
     return torch.exp(-((torch.abs(-torch.log(a)) ** p + torch.abs(-torch.log(b)) ** p) ** (1 / p)))
 
 # Fixed
-def aczel_alsina_tnorm_batch(a, b, p=1):
+def aczel_alsina_tnorm_batch(a, b, p=2):
     if p == 0:
         return drastic_tnorm_batch(a, b)
-    none_zero = (a >= 1e-6) & (b >= 1e-6)
-    a, b = torch.clamp(a, min=1e-6), torch.clamp(b, min=1e-6)
-    return torch.where(none_zero, torch.exp(-( (torch.abs(-torch.log(a)) ** p + torch.abs(-torch.log(b)) ** p) ** (1 / p))), torch.zeros_like(a))
+
+    # Clamp inputs to avoid log(0) and ensure numerical safety
+    a = torch.clamp(a, min=1e-6)
+    b = torch.clamp(b, min=1e-6)
+
+    log_a = -torch.log(a)
+    log_b = -torch.log(b)
+
+    # Clamp again after log to prevent huge values
+    log_a = torch.clamp(log_a, min=1e-6, max=100.0)
+    log_b = torch.clamp(log_b, min=1e-6, max=100.0)
+
+    sum_p = (log_a ** p + log_b ** p)
+    result = torch.exp(-torch.pow(sum_p, 1.0 / p))
+
+    # Clamp final result to ensure finite values
+    return torch.clamp(result, min=1e-12, max=1.0)
 
 def drastic_tnorm_tensor(fv):
     # The drastic t-norm operates on all elements along the last dimension.
