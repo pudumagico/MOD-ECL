@@ -3,6 +3,8 @@ import os
 import shutil
 import json 
 
+import torch
+
 from yolo.trainer import MOD_YOLOTrainer
 from dataset.road_r import ROAD_R
 from dataset.waymo_road import ROAD_PP
@@ -112,7 +114,12 @@ def main():
 
     if args.reinforcement_loss:
         with open(f"{trainer.save_dir}/t_norm_usage.txt", 'w+') as t_norm_usage_file:
-            t_norm_usage_file.write(json.dumps(trainer.model.criterion.t_norm_usage))
+            if isinstance(trainer.model, torch.nn.parallel.DistributedDataParallel):
+                criterion = trainer.model.module.criterion
+            else:
+                criterion = trainer.model.criterion
+            
+            t_norm_usage_file.write(json.dumps(criterion.t_norm_usage))
 
 if __name__ == "__main__":
     main()
