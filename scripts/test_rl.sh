@@ -83,14 +83,16 @@ workers=6
 # python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam_ijcai/task4_e10_reqloss500.0_product_rsched0/train --threshold 0.05 --pred --stats -c 0
 
 
-python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolo11n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -beta_rl 0.1 -delta_rl 0.25 -rl
-python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolo11n_reqloss100.0_rl_beta0.1_delta0.25_rsched0/train3 --threshold 0.05 --pred --stats -c 0
+# python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolo11n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -beta_rl 0.1 -delta_rl 0.25 -rl --rl_mode "pgl_tnorm"
+# python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolo11n_reqloss100.0_rl_beta0.1_delta0.25_modepgl_tnorm_rsched0/train3 --threshold 0.05 --pred --stats -c 0
 
-# python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolo11n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -beta_rl 0.1 -delta_rl 0.5 -rl
-# python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolo11n_reqloss100.0_rl_beta0.1_delta0.5_rsched0/train2 --threshold 0.05 --pred --stats -c 0
 
-# python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolo11n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -beta_rl 0.25 -delta_rl 0.25 -rl
-# python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolo11n_reqloss100.0_rl_beta0.25_delta0.25_rsched0/train --threshold 0.05 --pred --stats -c 0
+
+# python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolo11n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -beta_rl 0.1 -delta_rl 0.5 -rl --rl_mode "c_violation"
+# python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolo11n_reqloss100.0_rl_beta0.1_delta0.5_modec_violation_rsched0/train2 --threshold 0.05 --pred --stats -c 0
+
+# python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolo11n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -beta_rl 0.25 -delta_rl 0.25 -rl --rl_mode "c_violation"
+# python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolo11n_reqloss100.0_rl_beta0.25_delta0.25_modec_violation_rsched0/train --threshold 0.05 --pred --stats -c 0
 
 
 # β = 0.1, δ = 0.25
@@ -112,3 +114,33 @@ python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/tas
 # python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolo11n_reqloss100.0_drastic_rsched0/train --threshold 0.05 --pred --stats -c 0
 # python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolo11n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type hamacher
 # python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolo11n_reqloss100.0_hamacher_rsched0/train --threshold 0.05 --pred --stats -c 0
+
+
+
+
+# python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolov8n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type aczel_alsina
+# python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolov8n_reqloss100.0_aczel_alsina_rsched0/train --threshold 0.05 --pred --stats -c 0
+
+
+
+
+# python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolov8n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -beta_rl 0.1 -delta_rl 0.5 -rl --rl_mode "c_violation"
+# python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolov8n_reqloss100.0_rl_beta0.1_delta0.5_modec_violation_rsched0/train --threshold 0.05 --pred --stats -c 0
+
+# python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolov8n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -beta_rl 0.25 -delta_rl 0.25 -rl --rl_mode "c_violation"
+# python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolov8n_reqloss100.0_rl_beta0.25_delta0.25_modec_violation_rsched0/train --threshold 0.05 --pred --stats -c 0
+
+
+
+# python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolov8n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -beta_rl 0.25 -delta_rl 0.5 -rl --rl_mode "all_loss"
+# python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolov8n_reqloss100.0_rl_beta0.25_delta0.5_modeall_loss_rsched0/train3 --threshold 0.05 --pred --stats -c 0
+
+# python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolov8n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -beta_rl 0.25 -delta_rl 0.25 -rl --rl_mode "all_loss"
+python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolov8n_reqloss100.0_rl_beta0.25_delta0.25_modeall_loss_rsched0/train2 --threshold 0.05 --pred --stats -c 0
+# python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolov8n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -beta_rl 0.5 -delta_rl 0.5 -rl --rl_mode "all_loss"
+# python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolov8n_reqloss100.0_rl_beta0.5_delta0.5_modeall_loss_rsched0/train2 --threshold 0.05 --pred --stats -c 0
+
+python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolov8n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -rs 1.75
+python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolov8n_reqloss100.0_product_rsched1.75/train --threshold 0.05 --pred --stats -c 0
+python main.py -c 0 --task 4 --max_epochs 10 --basemodel yolov8n --req_loss 100 -workers $workers --optimizer Adam --lr 0.01 --dataset road++ --dataset_path ../../ROAD++ --max_det 300 --req-type product -rs 2.0
+python tester.py -dataset road++r --dataset_path ../../ROAD++ --model nparam/task4_e10_yolov8n_reqloss100.0_product_rsched2.0/train --threshold 0.05 --pred --stats -c 0

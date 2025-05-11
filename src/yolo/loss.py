@@ -70,6 +70,16 @@ class MOD_YOLOLoss:
         self.delta_rl = h.delta_rl
         self.rl_mode = h.rl_mode
 
+        if self.rl_mode == "pgl_tnorm":
+            for key in list(t_norm_values.keys()):
+                if key not in ["product", "minimum", "lukasiewicz"]:
+                    del t_norm_values[key], previous_losses[key]
+                    
+        elif self.rl_mode == "pglhpnmd_tnorm":
+            for key in list(t_norm_values.keys()):
+                if key not in ["product", "minimum", "lukasiewicz", "hamacher_product", "nilpotent_minimum", "drastic"]:
+                    del t_norm_values[key], previous_losses[key]
+
     def preprocess(self, targets, batch_size, scale_tensor, num_classes):
         """Preprocesses the target counts and matches with the input batch size to output a tensor."""
         if targets.shape[0] == 0:
@@ -175,6 +185,14 @@ class MOD_YOLOLoss:
             else:
                 loss[7] = 1
         
+
+
+
+        loss[0] *= self.hyp.box  # box gain
+        loss[1] *= self.hyp.cls  # cls gain
+        loss[2] *= self.hyp.dfl  # dfl gain
+
+
         if self.hyp.req_loss != 0:
             pred_const = pred_scores.sigmoid()
             max_pred = pred_const.max(-1)[0]
@@ -251,10 +269,12 @@ class MOD_YOLOLoss:
                         writer = csv.writer(file)
                         writer.writerow([self.hyp.req_type, current_loss.item()])
 
-                loss[3] = current_loss
+                loss[3] = current_loss * self.hyp.req_loss
                 
                 if self.rl_mode == "c_violation":
                     current_loss = loss[4]
+                elif self.rl_mode == "all_loss":
+                    current_loss = loss[:4].sum()
 
                 if self.hyp.reinforcement_loss:
                     # first_update = True
@@ -277,12 +297,8 @@ class MOD_YOLOLoss:
                             t_norm_values[self.hyp.req_type] = self.delta_rl * t_norm_values[self.hyp.req_type] + (1 - self.delta_rl) * normalized_update
                         previous_losses[self.hyp.req_type] = current_loss.item()
 
-
-        loss[0] *= self.hyp.box  # box gain
-        loss[1] *= self.hyp.cls  # cls gain
-        loss[2] *= self.hyp.dfl  # dfl gain
-        loss[3] *= self.hyp.req_loss # req_loss gain
         
+        # loss[3] *= self.hyp.req_loss # req_loss gain
         # def is_main_process():
         #     import torch.distributed as dist
         #     return not dist.is_initialized() or dist.get_rank() == 0

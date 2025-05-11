@@ -32,7 +32,7 @@ def getArgs():
     parser.add_argument("-max_det", "--max_det", type=int, default=300, help="Maximum detections")
     parser.add_argument("-beta_rl", type=float, default=0.1, help="Beta for RL Loss")
     parser.add_argument("-delta_rl", type=float, default=0.5, help="Delta for RL Loss")
-    parser.add_argument("-rl_mode", type=str, default="normal", help="Requirements Loss type")
+    parser.add_argument("-rl_mode", "--rl_mode", type=str, default="normal", help="Requirements Loss type")
     parser.add_argument("-rl", "--reinforcement-loss", action="store_true", help="Use Reinforcement Learning Loss")
     parser.add_argument("-rnd", "--req_num_detect", type=int, default=64, help="Number of required detections")
     parser.add_argument("-rs", "--req_scheduler", type=float, default=0, help="Scheduler for required detections")
