@@ -13,33 +13,21 @@ import numpy as np
 from yolo.tnorm import *
 
 # Initialize values for each t-norm
+import math
 t_norm_values = {
-    "product": 0.0,
-    "minimum": 0.0,
-    "hamacher_product": 0.0,
-    "schweizer_sklar": 0.0,
-    "lukasiewicz": 0.0,
-    "drastic": 0.0,
-    "nilpotent_minimum": 0.0,
-    "frank": 0.0,
-    "yager": 0.0,
-    "sugeno_weber": 0.0,
-    "aczel_alsina": 0.0,
-    "hamacher": 0.0,
+    "product": float('inf'),
+    "minimum": float('inf'),
+    "hamacher_product": float('inf'),
+    "schweizer_sklar": float('inf'),
+    "lukasiewicz": float('inf'),
+    "drastic": float('inf'),
+    "nilpotent_minimum": float('inf'),
+    "frank": float('inf'),
+    "yager": float('inf'),
+    "sugeno_weber": float('inf'),
+    "aczel_alsina": float('inf'),
+    "hamacher": float('inf'),
 }
-t_norm_values = {key: float('inf') for key in t_norm_values.keys()}
-previous_losses = {key: float('inf') for key in t_norm_values.keys()}
-
-# Learning rate for updating the rl values
-
-# Exploration probability
-
-# Function to select t-norm based on values with ε-greedy exploration
-def select_t_norm(beta):
-    if random.random() < beta:
-        return random.choice(list(t_norm_values.keys()))
-    else:
-        return max(t_norm_values, key=t_norm_values.get)
     
 class MOD_YOLOLoss:
     """Criterion class for computing training losses."""
@@ -66,19 +54,44 @@ class MOD_YOLOLoss:
         self.constraints = torch.from_numpy(np.load(h.const_path)).to_sparse()
         self.t_norm_usage = {key: 0 for key in t_norm_values.keys()}
 
+        # UCB1 tracking
+        self.ucb_counts = {key: 0 for key in t_norm_values.keys()}
+        self.ucb_sums = {key: 0.0 for key in t_norm_values.keys()}
+        self.ucb_t = 0
+
         self.beta_rl = h.beta_rl
         self.delta_rl = h.delta_rl
         self.rl_mode = h.rl_mode
 
-        if self.rl_mode == "pgl_tnorm":
-            for key in list(t_norm_values.keys()):
-                if key not in ["product", "minimum", "lukasiewicz"]:
-                    del t_norm_values[key], previous_losses[key]
+        # if self.rl_mode == "pgl_tnorm":
+        #     for key in list(t_norm_values.keys()):
+        #         if key not in ["product", "minimum", "lukasiewicz"]:
+        #             del t_norm_values[key], previous_losses[key]
                     
-        elif self.rl_mode == "pglhpnmd_tnorm":
-            for key in list(t_norm_values.keys()):
-                if key not in ["product", "minimum", "lukasiewicz", "hamacher_product", "nilpotent_minimum", "drastic"]:
-                    del t_norm_values[key], previous_losses[key]
+        # elif self.rl_mode == "pglhpnmd_tnorm":
+        #     for key in list(t_norm_values.keys()):
+        #         if key not in ["product", "minimum", "lukasiewicz", "hamacher_product", "nilpotent_minimum", "drastic"]:
+        #             del t_norm_values[key], previous_losses[key]
+
+    import math
+    def select_t_norm(self):
+        # Increment global timestep
+        self.ucb_t += 1
+        # Ensure each t-norm is tried once
+        for name, cnt in self.ucb_counts.items():
+            if cnt == 0:
+                return name
+        total = self.ucb_t
+        best = None
+        best_score = -float('inf')
+        for name in self.ucb_counts:
+            mean = self.ucb_sums[name] / self.ucb_counts[name]
+            bonus = math.sqrt(2 * math.log(total) / self.ucb_counts[name])
+            score = mean + bonus
+            if score > best_score:
+                best_score = score
+                best = name
+        return best
 
     def preprocess(self, targets, batch_size, scale_tensor, num_classes):
         """Preprocesses the target counts and matches with the input batch size to output a tensor."""
@@ -214,7 +227,7 @@ class MOD_YOLOLoss:
                 loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]), device=self.device)
 
                 if self.hyp.reinforcement_loss:
-                    self.hyp.req_type = select_t_norm(self.beta_rl)
+                    self.hyp.req_type = self.select_t_norm()
                     self.t_norm_usage[self.hyp.req_type] += 1
 
                 for req_id in range(self.constraints.shape[0]):
@@ -271,45 +284,13 @@ class MOD_YOLOLoss:
 
                 loss[3] = current_loss * self.hyp.req_loss
                 
-                if self.rl_mode == "c_violation":
-                    current_loss = loss[4]
-                elif self.rl_mode == "all_loss":
-                    current_loss = loss[:4].sum()
-
                 if self.hyp.reinforcement_loss:
-                    # first_update = True
-                    epsilon = 1e-9
-
-                    previous_loss = previous_losses[self.hyp.req_type]
-                    
-                    if previous_loss == float('inf'):
-                        previous_losses[self.hyp.req_type] = current_loss.item()
-                    else:
-                        if previous_loss < epsilon:
-                            previous_loss = epsilon                            
-                                
-                        normalized_update = (previous_loss - current_loss.item()) / (previous_loss)
-
-                        if t_norm_values[self.hyp.req_type] == float('inf'):
-                            t_norm_values[self.hyp.req_type] = self.delta_rl * normalized_update
-                        else:
-                            # t_norm_values[self.hyp.req_type] += delta_rl * normalized_update
-                            t_norm_values[self.hyp.req_type] = self.delta_rl * t_norm_values[self.hyp.req_type] + (1 - self.delta_rl) * normalized_update
-                        previous_losses[self.hyp.req_type] = current_loss.item()
+                    # UCB1 reward update using loss[4] which is in [0,1]
+                    reward = loss[4].item()
+                    self.ucb_counts[self.hyp.req_type] += 1
+                    self.ucb_sums[self.hyp.req_type] += reward
 
         
-        # loss[3] *= self.hyp.req_loss # req_loss gain
-        # def is_main_process():
-        #     import torch.distributed as dist
-        #     return not dist.is_initialized() or dist.get_rank() == 0
-        
-        # if self.hyp.reinforcement_loss and is_main_process:
-        #     import json
-        #     with open(f"t_norm_usage.txt", 'a+') as t_norm_usage_file:
-        #         t_norm_usage_file.write('\n')
-        #         t_norm_usage_file.write(json.dumps(self.t_norm_usage))
-        
-
         return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl, rql)
 
 
