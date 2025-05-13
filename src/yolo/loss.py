@@ -176,7 +176,7 @@ class MOD_YOLOLoss:
 
         with torch.no_grad():
             pred_const = pred_scores.sigmoid()
-            pred_const = (pred_const >= 0.3).float().detach()
+            pred_const = (pred_const >= 0.5).float().detach()
             if pred_const.sum().item() > 0:
                 # Number of boxes that are above the threshold of 0.3 divided by the total number of boxes
                 pred_const_max = pred_const.max(-1)[0]
