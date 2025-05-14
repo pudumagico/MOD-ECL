@@ -286,7 +286,7 @@ class MOD_YOLOLoss:
                 
                 if self.hyp.reinforcement_loss:
                     # UCB1 reward update using loss[4] which is in [0,1]
-                    reward = loss[4].item()
+                    reward = 1 - loss[4].item()
                     self.ucb_counts[self.hyp.req_type] += 1
                     self.ucb_sums[self.hyp.req_type] += reward
 
