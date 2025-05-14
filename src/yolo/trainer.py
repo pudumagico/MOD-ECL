@@ -162,7 +162,7 @@ class MOD_YOLOTrainer(BaseTrainer):
         """Plots metrics from a CSV file."""
         plot_results(file=self.csv, on_plot=self.on_plot)  # save results.png
         if self.args.reinforcement_loss:
-            with open(f"{self.save_dir}/t_norm_usage.txt", 'w+') as t_norm_usage_file: 
+            with open(f"{self.save_dir}/t_norm_usage_{self.epoch}.txt", 'w+') as t_norm_usage_file: 
                 # if model is DDP-wrapped
                 if isinstance(self.model, torch.nn.parallel.DistributedDataParallel):
                     criterion = self.model.module.criterion
