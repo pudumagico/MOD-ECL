@@ -161,16 +161,6 @@ class MOD_YOLOTrainer(BaseTrainer):
     def plot_metrics(self):
         """Plots metrics from a CSV file."""
         plot_results(file=self.csv, on_plot=self.on_plot)  # save results.png
-        if self.args.reinforcement_loss:
-            with open(f"{self.save_dir}/t_norm_usage_{self.epoch}.txt", 'w+') as t_norm_usage_file: 
-                # if model is DDP-wrapped
-                if isinstance(self.model, torch.nn.parallel.DistributedDataParallel):
-                    criterion = self.model.module.criterion
-                else:
-                    criterion = self.model.criterion
-
-                t_norm_usage_file.write(json.dumps(criterion.t_norm_usage))
-                # t_norm_usage_file.write(json.dumps(self.model.module.criterion.t_norm_usage))
                 
     def plot_training_labels(self):
         """Create a labeled training plot of the YOLO model."""

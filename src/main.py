@@ -51,6 +51,52 @@ def on_train_epoch_end(trainer):
         trainer.args.req_loss = hyp.req_loss * hyp.req_scheduler
 
 
+def on_train_batch_end(trainer):
+    if trainer.args.reinforcement_loss:
+        if not hasattr(trainer, "batch_i"):
+            trainer.batch_i = -1
+        trainer.batch_i += 1
+        if trainer.batch_i % 10 == 0:
+            with open(f"{trainer.save_dir}/t_norm_usage_{trainer.epoch}.txt", 'w+') as t_norm_usage_file: 
+                # if model is DDP-wrapped
+                if isinstance(trainer.model, torch.nn.parallel.DistributedDataParallel):
+                    criterion = trainer.model.module.criterion
+                else:
+                    criterion = trainer.model.criterion
+
+                t_norm_usage = criterion.t_norm_usage
+                t_norm_percentage = {}
+                for key, value in t_norm_usage.items():
+                    if sum(t_norm_usage.values()) > 0:
+                        t_norm_percentage[key] = value / sum(t_norm_usage.values())
+                    else:
+                        t_norm_percentage[key] = 0
+
+                ucb_count = criterion.ucb_counts
+                ucb_sum = criterion.ucb_sums
+                ucb_mean = {key: ucb_sum[key] / ucb_count[key] if ucb_count[key] > 0 else 0 for key in ucb_sum.keys()}
+
+                # Ensure all printed dictionaries follow a user-defined T-norm order
+                tnorm_order = [
+                    "product", "minimum", "lukasiewicz", "drastic", "hamacher_product",
+                    "nilpotent_minimum", "schweizer_sklar", "hamacher", "frank",
+                    "yager", "sugeno_weber", "aczel_alsina"
+                ]
+                usage_ordered = {k: t_norm_usage[k] for k in tnorm_order if k in t_norm_usage}
+                percentage_ordered = {k: t_norm_percentage[k] for k in tnorm_order if k in t_norm_percentage}
+                ucb_ordered = {k: ucb_mean[k] for k in tnorm_order if k in ucb_mean}
+
+                usage_json = json.dumps(usage_ordered, indent=2)
+                percentage_json = json.dumps(percentage_ordered, indent=2)
+                ucb_json = json.dumps(ucb_ordered, indent=2)
+                
+                t_norm_usage_file.write(usage_json)
+                t_norm_usage_file.write("\n")
+                t_norm_usage_file.write(percentage_json)
+                t_norm_usage_file.write("\n")
+                t_norm_usage_file.write(ucb_json)
+
+
 def main():
     args = getArgs()
 
@@ -110,6 +156,7 @@ def main():
         exit()
 
     trainer.add_callback('on_train_epoch_end', on_train_epoch_end)
+    trainer.add_callback('on_train_batch_end', on_train_batch_end)
     trainer.train()
 
     if args.reinforcement_loss:

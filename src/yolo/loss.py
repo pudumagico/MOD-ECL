@@ -236,7 +236,7 @@ class MOD_YOLOLoss:
 
                     req_ind = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
                     fuzzy_values = 1 - pred_const[:,req_ind]
-                    loss_const2[:, req_id] = min_tnorm_tensor(fuzzy_values)
+                    loss_const2[:, req_id] = 1 - torch.min(fuzzy_values, dim=-1)[0]
                     if self.hyp.req_type == "lukasiewicz":
                         loss_const[:,req_id] = lukasiewicz_tnorm_tensor(fuzzy_values)
                         # loss_const[:,req_id] = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_values)
@@ -276,7 +276,8 @@ class MOD_YOLOLoss:
                     torch.nan_to_num(loss_const, nan=0.0)
                     exit()
                 current_loss = loss_const.sum() / (loss_const.shape[0] * loss_const.shape[1])
-                current_reward = loss_const2.sum() / (loss_const2.shape[0] * loss_const2.shape[1])
+                # current_reward = loss_const2.sum() / (loss_const2.shape[0] * loss_const2.shape[1])
+                current_reward = loss_const2.min(dim=-1)[0].sum() / (loss_const2.shape[0])
 
                 # Check if current_loss is nan
                 if torch.isnan(current_loss):
@@ -291,7 +292,7 @@ class MOD_YOLOLoss:
                 if self.hyp.reinforcement_loss:
                     # Discounted UCB update
                     # first apply discount to all arms
-                    reward = 1 - current_reward.item()
+                    reward = current_reward.item()
                     for nm in self.ucb_counts:
                         self.ucb_counts[nm] *= self.ucb_gamma
                         self.ucb_sums[nm] *= self.ucb_gamma
