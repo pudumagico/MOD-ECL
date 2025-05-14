@@ -57,10 +57,11 @@ class MOD_YOLOLoss:
         # UCB1 tracking
         self.ucb_counts = {key: 0 for key in t_norm_values.keys()}
         self.ucb_sums = {key: 0.0 for key in t_norm_values.keys()}
-        self.ucb_t = 0
+        # Discount factor for Discounted UCB
+        self.ucb_gamma = h.delta_rl  # use the existing delta_rl as the discount factor γ ∈ (0,1)
 
-        self.beta_rl = h.beta_rl
-        self.delta_rl = h.delta_rl
+        # self.beta_rl = h.beta_rl
+        # self.delta_rl = h.delta_rl
         self.rl_mode = h.rl_mode
 
         # if self.rl_mode == "pgl_tnorm":
@@ -75,18 +76,18 @@ class MOD_YOLOLoss:
 
     import math
     def select_t_norm(self):
-        # Increment global timestep
-        self.ucb_t += 1
-        # Ensure each t-norm is tried once
+        # Discounted UCB selection
+        # Ensure every arm is tried at least once
         for name, cnt in self.ucb_counts.items():
-            if cnt == 0:
+            if cnt < 1e-8:
                 return name
-        total = self.ucb_t
+        # Use total discounted mass instead of self.ucb_t
+        total_mass = sum(self.ucb_counts.values())
         best = None
         best_score = -float('inf')
-        for name in self.ucb_counts:
-            mean = self.ucb_sums[name] / self.ucb_counts[name]
-            bonus = math.sqrt(2 * math.log(total) / self.ucb_counts[name])
+        for name, cnt in self.ucb_counts.items():
+            mean = self.ucb_sums[name] / cnt
+            bonus = math.sqrt(2 * math.log(total_mass + 1e-8) / cnt)
             score = mean + bonus
             if score > best_score:
                 best_score = score
@@ -176,7 +177,7 @@ class MOD_YOLOLoss:
 
         with torch.no_grad():
             pred_const = pred_scores.sigmoid()
-            pred_const = (pred_const >= 0.5).float().detach()
+            pred_const = (pred_const >= 0.05).float().detach()
             if pred_const.sum().item() > 0:
                 # Number of boxes that are above the threshold of 0.3 divided by the total number of boxes
                 pred_const_max = pred_const.max(-1)[0]
@@ -225,6 +226,7 @@ class MOD_YOLOLoss:
                 pred_const = torch.cat([pred_const, 1-pred_const], axis=-1)
 
                 loss_const = torch.ones((pred_const.shape[0], self.constraints.shape[0]), device=self.device)
+                loss_const2 = torch.ones((pred_const.shape[0], self.constraints.shape[0]), device=self.device)
 
                 if self.hyp.reinforcement_loss:
                     self.hyp.req_type = self.select_t_norm()
@@ -234,6 +236,7 @@ class MOD_YOLOLoss:
 
                     req_ind = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
                     fuzzy_values = 1 - pred_const[:,req_ind]
+                    loss_const2[:, req_id] = min_tnorm_tensor(fuzzy_values)
                     if self.hyp.req_type == "lukasiewicz":
                         loss_const[:,req_id] = lukasiewicz_tnorm_tensor(fuzzy_values)
                         # loss_const[:,req_id] = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_values)
@@ -273,6 +276,7 @@ class MOD_YOLOLoss:
                     torch.nan_to_num(loss_const, nan=0.0)
                     exit()
                 current_loss = loss_const.sum() / (loss_const.shape[0] * loss_const.shape[1])
+                current_reward = loss_const2.sum() / (loss_const2.shape[0] * loss_const2.shape[1])
 
                 # Check if current_loss is nan
                 if torch.isnan(current_loss):
@@ -285,9 +289,14 @@ class MOD_YOLOLoss:
                 loss[3] = current_loss * self.hyp.req_loss
                 
                 if self.hyp.reinforcement_loss:
-                    # UCB1 reward update using loss[4] which is in [0,1]
-                    reward = 1 - loss[4].item()
-                    self.ucb_counts[self.hyp.req_type] += 1
+                    # Discounted UCB update
+                    # first apply discount to all arms
+                    reward = 1 - current_reward.item()
+                    for nm in self.ucb_counts:
+                        self.ucb_counts[nm] *= self.ucb_gamma
+                        self.ucb_sums[nm] *= self.ucb_gamma
+                    # then add current pull
+                    self.ucb_counts[self.hyp.req_type] += 1.0
                     self.ucb_sums[self.hyp.req_type] += reward
 
         
