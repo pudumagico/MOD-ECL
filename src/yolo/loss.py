@@ -87,7 +87,7 @@ class MOD_YOLOLoss:
         best_score = -float('inf')
         for name, cnt in self.ucb_counts.items():
             mean = self.ucb_sums[name] / cnt
-            bonus = math.sqrt(2 * math.log(total_mass + 1e-8) / cnt)
+            bonus = math.sqrt(math.log(total_mass + 1e-8) / cnt)
             score = mean + bonus
             if score > best_score:
                 best_score = score
@@ -229,14 +229,36 @@ class MOD_YOLOLoss:
                 loss_const2 = torch.ones((pred_const.shape[0], self.constraints.shape[0]), device=self.device)
 
                 if self.hyp.reinforcement_loss:
-                    self.hyp.req_type = self.select_t_norm()
                     self.t_norm_usage[self.hyp.req_type] += 1
+
+                    for req_id in range(self.constraints.shape[0]):
+                        req_ind = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
+                        fuzzy_values = 1 - pred_const[:,req_ind]
+                        loss_const2[:, req_id] = 1 - min_tnorm_tensor(fuzzy_values)
+
+                    # Use relative improvement in reward
+                    reward = min_tnorm_tensor(loss_const2).sum() / (loss_const2.shape[0])
+                    # if not hasattr(self, 'previous_reward'):
+                    #     self.previous_reward = reward  # initialize if not already present
+                    # relative_reward = torch.clamp((self.previous_reward - reward) / max(self.previous_reward, 1e-8), min=0.0, max=1.0)
+                    # self.previous_reward = reward  # update for next step
+                    current_reward = reward.item()
+                    # Discounted UCB update
+                    # first apply discount to all arms
+                    # current_reward = 1 - loss[5].item()
+                    for nm in self.ucb_counts:
+                        self.ucb_counts[nm] *= self.ucb_gamma
+                        self.ucb_sums[nm] *= self.ucb_gamma
+                    # then add current pull
+                    self.ucb_counts[self.hyp.req_type] += 1.0
+                    self.ucb_sums[self.hyp.req_type] += current_reward
+
+                    self.hyp.req_type = self.select_t_norm()
 
                 for req_id in range(self.constraints.shape[0]):
 
                     req_ind = self.constraints.indices()[1][self.constraints.indices()[0]==req_id]
                     fuzzy_values = 1 - pred_const[:,req_ind]
-                    loss_const2[:, req_id] = 1 - torch.min(fuzzy_values, dim=-1)[0]
                     if self.hyp.req_type == "lukasiewicz":
                         loss_const[:,req_id] = lukasiewicz_tnorm_tensor(fuzzy_values)
                         # loss_const[:,req_id] = apply_tnorm_iterative(lukasiewicz_tnorm, fuzzy_values)
@@ -277,7 +299,8 @@ class MOD_YOLOLoss:
                     exit()
                 current_loss = loss_const.sum() / (loss_const.shape[0] * loss_const.shape[1])
                 # current_reward = loss_const2.sum() / (loss_const2.shape[0] * loss_const2.shape[1])
-                current_reward = loss_const2.min(dim=-1)[0].sum() / (loss_const2.shape[0])
+                # current_reward = min_tnorm_tensor(loss_const2).sum() / (loss_const2.shape[0])
+                # current_reward = min_tnorm_tensor(min_tnorm_tensor(loss_const2))
 
                 # Check if current_loss is nan
                 if torch.isnan(current_loss):
@@ -289,16 +312,6 @@ class MOD_YOLOLoss:
 
                 loss[3] = current_loss * self.hyp.req_loss
                 
-                if self.hyp.reinforcement_loss:
-                    # Discounted UCB update
-                    # first apply discount to all arms
-                    reward = current_reward.item()
-                    for nm in self.ucb_counts:
-                        self.ucb_counts[nm] *= self.ucb_gamma
-                        self.ucb_sums[nm] *= self.ucb_gamma
-                    # then add current pull
-                    self.ucb_counts[self.hyp.req_type] += 1.0
-                    self.ucb_sums[self.hyp.req_type] += reward
 
         
         return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl, rql)
