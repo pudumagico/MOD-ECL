@@ -163,7 +163,13 @@ class MOD_YOLOTrainer(BaseTrainer):
         plot_results(file=self.csv, on_plot=self.on_plot)  # save results.png
         if self.args.reinforcement_loss:
             with open(f"{self.save_dir}/t_norm_usage.txt", 'w+') as t_norm_usage_file: 
-                t_norm_usage_file.write(json.dumps(self.model.criterion.t_norm_usage))
+                # if model is DDP-wrapped
+                if isinstance(self.model, torch.nn.parallel.DistributedDataParallel):
+                    criterion = self.model.module.criterion
+                else:
+                    criterion = self.model.criterion
+
+                t_norm_usage_file.write(json.dumps(criterion.t_norm_usage))
                 # t_norm_usage_file.write(json.dumps(self.model.module.criterion.t_norm_usage))
                 
     def plot_training_labels(self):

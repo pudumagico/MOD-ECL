@@ -2,3 +2,8 @@ runs/*
 models/*
 *.pt
 *.pkl
+*.sh
+*.slurm
+*.json
+*.pyc
+*.out
