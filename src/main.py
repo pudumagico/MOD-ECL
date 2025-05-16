@@ -45,10 +45,59 @@ def getArgs():
 def on_train_epoch_end(trainer):
     """Callback function to be executed at the end of each training epoch."""
     # Epochs start at 0
+    saveFile(trainer)
     hyp = trainer.args
     # At epoch 2, modify the required loss by a factor of req_scheduler
     if trainer.epoch >= 2 and hyp.req_scheduler > 0:
         trainer.args.req_loss = hyp.req_loss * hyp.req_scheduler
+
+
+def on_train_batch_end(trainer):
+    if trainer.args.reinforcement_loss:
+        if not hasattr(trainer, "batch_i"):
+            trainer.batch_i = -1
+        trainer.batch_i += 1
+        if trainer.batch_i % 10 == 0:
+            saveFile(trainer)
+
+
+def saveFile(trainer):
+    with open(f"{trainer.save_dir}/t_norm_usage_{trainer.epoch}.txt", 'w+') as t_norm_usage_file: 
+        # if model is DDP-wrapped
+        if isinstance(trainer.model, torch.nn.parallel.DistributedDataParallel):
+            criterion = trainer.model.module.criterion
+        else:
+            criterion = trainer.model.criterion
+
+        t_norm_usage = criterion.t_norm_usage
+        t_norm_percentage = {}
+        for key, value in t_norm_usage.items():
+            if sum(t_norm_usage.values()) > 0:
+                t_norm_percentage[key] = value / sum(t_norm_usage.values())
+            else:
+                t_norm_percentage[key] = 0
+
+        t_norm_values = criterion.t_norm_values
+
+        # Ensure all printed dictionaries follow a user-defined T-norm order
+        tnorm_order = [
+            "product", "minimum", "lukasiewicz", "drastic", "hamacher_product",
+            "nilpotent_minimum", "schweizer_sklar", "hamacher", "frank",
+            "yager", "sugeno_weber", "aczel_alsina"
+        ]
+        usage_ordered = {k: t_norm_usage[k] for k in tnorm_order if k in t_norm_usage}
+        percentage_ordered = {k: t_norm_percentage[k] for k in tnorm_order if k in t_norm_percentage}
+        t_norm_values = {k: t_norm_values[k] for k in tnorm_order if k in t_norm_values}
+
+        usage_json = json.dumps(usage_ordered, indent=2)
+        percentage_json = json.dumps(percentage_ordered, indent=2)
+        ucb_json = json.dumps(t_norm_values, indent=2)
+        
+        t_norm_usage_file.write(usage_json)
+        t_norm_usage_file.write("\n")
+        t_norm_usage_file.write(percentage_json)
+        t_norm_usage_file.write("\n")
+        t_norm_usage_file.write(ucb_json)
 
 
 def main():
@@ -96,6 +145,27 @@ def main():
     folder_args.append("rsched" + str(args.req_scheduler))
     folder_args = "_".join(folder_args)
 
+
+    if False:
+        video_list = dataset.getLabels(args.task)
+        val_list = dataset.getValidation(video_list, seed=args.seed, val_split=args.val_split)
+        print("Train split:")
+        print(sorted(video_list))
+        print("Val split:")
+        print(sorted(val_list))
+        import csv
+
+        with open("train_split_roadwr.csv", "w", newline="") as train_file:
+            writer = csv.writer(train_file)
+            for item in sorted(video_list):
+                writer.writerow([item])
+
+        with open("test_split_roadwr.csv", "w", newline="") as test_file:
+            writer = csv.writer(test_file)
+            for item in sorted(val_list):
+                writer.writerow([item])
+        return
+
     try:
         if not args.no_augment:
             trainer = MOD_YOLOTrainer(overrides={"device": args.cuda, "project": f"../runs/nparam/{folder_args}", "data":f"../config/dataset_task{args.task}.yaml", "task":"detect", "model":f"../models/{args.basemodel}.pt",
@@ -110,6 +180,7 @@ def main():
         exit()
 
     trainer.add_callback('on_train_epoch_end', on_train_epoch_end)
+    trainer.add_callback('on_train_batch_end', on_train_batch_end)
     trainer.train()
 
     if args.reinforcement_loss:
