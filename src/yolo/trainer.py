@@ -109,7 +109,7 @@ class MOD_YOLOTrainer(BaseTrainer):
 
     def get_validator(self):
         """Returns a DetectionValidator for YOLO model validation."""
-        self.loss_names = "box_loss", "cls_loss", "dfl_loss", "req_loss", "c_violation(nc)", "c_violation(n)"
+        self.loss_names = "box_loss", "cls_loss", "dfl_loss", "req_loss", "c_violation(nc)", "c_violation(n)", "box_ratio", "label_ratio"
         return MOD_YOLODetectionValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
@@ -155,7 +155,7 @@ class MOD_YOLOTrainer(BaseTrainer):
         n = len(metrics) + 1  # number of cols
         s = "" if self.csv.exists() else (("%23s," * n % tuple(["epoch"] + keys)).rstrip(",") + "\n")  # header
         with open(self.csv, "a") as f:
-            f.write(s + ("%23.5g," * n % tuple([self.epoch + 1] + vals)).rstrip(",") + "\n")
+            f.write(s + ("%23.20g," * n % tuple([self.epoch + 1] + vals)).rstrip(",") + "\n")
         self.plot_metrics()  # plot results.png
 
     def plot_metrics(self):
@@ -163,8 +163,15 @@ class MOD_YOLOTrainer(BaseTrainer):
         plot_results(file=self.csv, on_plot=self.on_plot)  # save results.png
         if self.args.reinforcement_loss:
             with open(f"{self.save_dir}/t_norm_usage.txt", 'w+') as t_norm_usage_file: 
-                t_norm_usage_file.write(json.dumps(self.model.criterion.t_norm_usage))
+                # if model is DDP-wrapped
+                if isinstance(self.model, torch.nn.parallel.DistributedDataParallel):
+                    criterion = self.model.module.criterion
+                else:
+                    criterion = self.model.criterion
 
+                t_norm_usage_file.write(json.dumps(criterion.t_norm_usage))
+                # t_norm_usage_file.write(json.dumps(self.model.module.criterion.t_norm_usage))
+                
     def plot_training_labels(self):
         """Create a labeled training plot of the YOLO model."""
         boxes = np.concatenate([lb["bboxes"] for lb in self.train_loader.dataset.labels], 0)
@@ -211,8 +218,8 @@ def plot_results(file="path/to/results.csv", dir="", segment=False, pose=False, 
         fig, ax = plt.subplots(2, 9, figsize=(21, 6), tight_layout=True)
         index = [1, 2, 3, 4, 5, 6, 7, 10, 11, 14, 15, 16, 17, 18, 8, 9, 12, 13]
     else:
-        fig, ax = plt.subplots(3, 6, figsize=(30, 18), tight_layout=True)
-        index = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+        fig, ax = plt.subplots(3, 7, figsize=(30, 21), tight_layout=True)
+        index = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
     ax = ax.ravel()
     files = list(save_dir.glob("results*.csv"))
     assert len(files), f"No results.csv files found in {save_dir.resolve()}, nothing to plot."

@@ -1,16 +1,15 @@
-version: '1.0'
 services:
   mod-cl:
     restart: always
-    shm_size: '32gb'
+    shm_size: '96gb'
     build: .
     container_name: 'MOD-CL'
-    working_dir: '/root/src/T-NormRL'
+    working_dir: '/root'
     tty: true
     volumes:
-      - ../:/root/src/T-NormRL
-      - ../../road-dataset:/root/src/road-dataset
-      - ../../ROAD++:/root/src/ROAD++
+      - ../:/root/T-NormRL
+      - ../../road-dataset:/root/road-dataset
+      - ../../ROAD++:/root/ROAD++
     
     deploy:
       resources:

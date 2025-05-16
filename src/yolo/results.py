@@ -50,7 +50,7 @@ class MOD_Results(SimpleClass):
         tojson(normalize=False): Converts detection results to JSON format.
     """
 
-    def __init__(self, orig_img, path, names, boxes=None, masks=None, probs=None, keypoints=None, obb=None, thres=0.1) -> None:
+    def __init__(self, orig_img, path, names, nc, boxes=None, masks=None, probs=None, keypoints=None, obb=None, thres=0.1) -> None:
         """
         Initialize the Results class.
 
@@ -66,7 +66,7 @@ class MOD_Results(SimpleClass):
         """
         self.orig_img = orig_img
         self.orig_shape = orig_img.shape[:2]
-        self.boxes = MOD_Boxes(boxes, self.orig_shape) if boxes is not None else None  # native size boxes
+        self.boxes = MOD_Boxes(boxes, self.orig_shape, nc) if boxes is not None else None  # native size boxes
         self.masks = Masks(masks, self.orig_shape) if masks is not None else None  # native size or imgsz masks
         self.probs = Probs(probs) if probs is not None else None
         self.keypoints = Keypoints(keypoints, self.orig_shape) if keypoints is not None else None
@@ -77,6 +77,7 @@ class MOD_Results(SimpleClass):
         self.save_dir = None
         self.thres = thres
         self._keys = "boxes", "masks", "probs", "keypoints", "obb"
+        self.nc = nc
 
     def __getitem__(self, idx):
         """Return a Results object for the specified index."""
@@ -94,7 +95,7 @@ class MOD_Results(SimpleClass):
         if boxes is not None:
             new_data = ops.clip_boxes(boxes, self.orig_shape)
             full_conf = self.boxes.full_conf.to(new_data.device)
-            self.boxes = MOD_Boxes(torch.cat((new_data[:, :4], full_conf, new_data[:, 4:]), 1), self.orig_shape)
+            self.boxes = MOD_Boxes(torch.cat((new_data[:, :4], full_conf, new_data[:, 4:]), 1), self.orig_shape, self.nc)
         if masks is not None:
             self.masks = Masks(masks, self.orig_shape)
         if probs is not None:
@@ -140,7 +141,7 @@ class MOD_Results(SimpleClass):
 
     def new(self):
         """Return a new Results object with the same image, path, and names."""
-        return MOD_Results(orig_img=self.orig_img, path=self.path, names=self.names)
+        return MOD_Results(orig_img=self.orig_img, path=self.path, names=self.names, nc=self.nc)
 
     def plot(
         self,
@@ -422,7 +423,7 @@ class MOD_Boxes(BaseTensor):
         to(device, dtype=None): Moves the boxes to the specified device.
     """
 
-    def __init__(self, boxes, orig_shape) -> None:
+    def __init__(self, boxes, orig_shape, nc) -> None:
         """
         Initialize the Boxes class.
 
@@ -437,8 +438,9 @@ class MOD_Boxes(BaseTensor):
         n = boxes.shape[-1]
         #assert n in {6, 7}, f"expected 6 or 7 values but got {n}"  # xyxy, track_id, conf, cls
         super().__init__(boxes, orig_shape)
-        self.is_track = n == 48
+        self.is_track = n == nc
         self.orig_shape = orig_shape
+        self.nc = nc
 
     @property
     def xyxy(self):
@@ -458,7 +460,7 @@ class MOD_Boxes(BaseTensor):
     @property
     def full_conf(self):
         """Return the class values of the boxes."""
-        return self.data[:, 4:45]
+        return self.data[:, 4:4+self.nc]
     
     @property
     def id(self):
@@ -488,3 +490,29 @@ class MOD_Boxes(BaseTensor):
         xywh[..., [0, 2]] /= self.orig_shape[1]
         xywh[..., [1, 3]] /= self.orig_shape[0]
         return xywh
+    
+
+
+    def cpu(self):
+        """Return a copy of the tensor on CPU memory."""
+        return self if isinstance(self.data, np.ndarray) else self.__class__(self.data.cpu(), self.orig_shape, self.nc)
+
+    def numpy(self):
+        """Return a copy of the tensor as a numpy array."""
+        return self if isinstance(self.data, np.ndarray) else self.__class__(self.data.numpy(), self.orig_shape, self.nc)
+
+    def cuda(self):
+        """Return a copy of the tensor on GPU memory."""
+        return self.__class__(torch.as_tensor(self.data).cuda(), self.orig_shape)
+
+    def to(self, *args, **kwargs):
+        """Return a copy of the tensor with the specified device and dtype."""
+        return self.__class__(torch.as_tensor(self.data).to(*args, **kwargs), self.orig_shape, self.nc)
+
+    def __len__(self):  # override len(results)
+        """Return the length of the data tensor."""
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        """Return a BaseTensor with the specified index of the data tensor."""
+        return self.__class__(self.data[idx], self.orig_shape, self.nc)
