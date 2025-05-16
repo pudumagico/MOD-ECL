@@ -1,14 +1,61 @@
-# Advancing T-norm Based Constrained Loss for Object Detection in Autonomous Driving with Requirements
-IJCAI 2025 Paper ID: 6717
-
+# T-norm Selection for Object Detection in Autonomous Driving with Logical Constraints
+NeurIPS 2025 Paper ID: 23576
 
 ## Installation of Data
 AAAAA
 
-
 ## Downloading experiment logs
 AAAAA
 
-
 ## Running experiments
-AAAAA
+
+1. Create a conda environment:
+   ```bash
+   conda create --name modecl --file requirements.txt
+   ```
+2. Download the logs using the link provided in our repository.
+3. Reproduce the main results with:
+   ```bash
+   python tester.py --model run_folder --stats --pred --task i
+   ```
+<!--
+To produce constrained output results using MaxSAT:
+```bash
+python tester.py --model run_folder --stats --pred --task i --maxsat
+``` 
+-->
+
+---
+
+## Training Models from Scratch
+
+You can produce baselines, use individual t-norms `T`, change the λ weight for the constrained loss, enable the λ scheduler, use the adaptive algorithm, or combine these.  
+
+   Consider:
+   - `e`: number of epochs  
+   - `w`: number of workers  
+   - `m`: a base model from the YOLOv8 family  
+   - `--req_loss=l`: λ value for the constrained loss  
+
+   Examples:
+   - **Baseline**:
+     ```bash
+     python main.py --task i --basemodel m --max_epochs e --workers w --req_loss 0
+     ```
+
+   - **Individual t-norm**:
+     ```bash
+     python main.py --task i --basemodel m --max_epochs e --workers w --req_loss l --req-type T
+     ```
+
+   - **Adaptive algorithm** (uses all t-norms listed in the main paper):
+     ```bash
+     python main.py --task i --basemodel m --max_epochs e --workers w -rl
+     ```
+
+   - **λ scheduler** (with scheduler constant `s ≥ 0`):
+     ```bash
+     python main.py --task i --basemodel m --max_epochs e --workers w --req_loss l --req-type T --req_scheduler s
+     ```
+
+You may combine these arguments as needed.
