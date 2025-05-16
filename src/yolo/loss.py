@@ -65,6 +65,7 @@ class MOD_YOLOLoss:
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
         self.constraints = torch.from_numpy(np.load(h.const_path)).to_sparse()
         self.t_norm_usage = {key: 0 for key in t_norm_values.keys()}
+        self.t_norm_values = t_norm_values
 
         self.beta_rl = h.beta_rl
         self.delta_rl = h.delta_rl
@@ -309,7 +310,7 @@ class MOD_YOLOLoss:
         #         t_norm_usage_file.write('\n')
         #         t_norm_usage_file.write(json.dumps(self.t_norm_usage))
         
-
+        self.t_norm_values = t_norm_values
         return loss[:4].sum() * batch_size, loss.detach()  # loss(box, cls, dfl, rql)
 
 
