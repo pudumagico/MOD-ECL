@@ -2,7 +2,17 @@
 NeurIPS 2025 Paper ID: 23576
 
 ## Installation of Data
-AAAAA
+
+### Downloading ROAD++
+Run the following commands in the root folder.
+```
+mkdir ../ROAD++
+mkdir ../ROAD++/train
+mkdir ../ROAD++/train/videos
+```
+
+Go to https://waymo.com/open/download/, connect your google account, then download the data from the google cloud console.
+The videos should be downloaded into ../ROAD++/train/videos folder, and road_waymo_trainval_v1.0.json should be downloaded into the ROAD++ folder. No other files/folders should be required.
 
 ## Downloading experiment logs
 AAAAA
