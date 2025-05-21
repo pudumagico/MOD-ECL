@@ -1,4 +1,4 @@
-name: tnormrl
+name: modecl
 channels:
   - conda-forge
   - defaults
