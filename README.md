@@ -13,9 +13,28 @@ mkdir ../ROAD++/train/videos
 
 Go to https://waymo.com/open/download/, connect your google account, then download the data from the google cloud console.
 The videos should be downloaded into ../ROAD++/train/videos folder, and road_waymo_trainval_v1.0.json should be downloaded into the ROAD++ folder. No other files/folders should be required.
+Once you have downloaded the dataset to correct positions, run the following commands.
+
+```
+cd scripts
+bash road++_installation.sh
+```
+
+### Downloading ROAD
+Run the following command in the root folder.
+```
+cd scripts
+bash road_installation.sh
+```
+
+
 
 ## Downloading experiment logs
-AAAAA
+Run the following command in the root folder.
+```
+cd scripts
+bash dl_experiments.sh
+```
 
 ## Running experiments
 
