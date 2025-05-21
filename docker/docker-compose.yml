@@ -3,7 +3,7 @@ services:
     restart: always
     shm_size: '96gb'
     build: .
-    container_name: 'MOD-CL'
+    container_name: 'modecl'
     working_dir: '/root'
     tty: true
     volumes:
