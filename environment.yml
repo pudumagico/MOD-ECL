@@ -1,0 +1,13 @@
+name: tnormrl
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - pytorch-cuda=12.4
+  - python==3.11.11
+  - matplotlib
+  - conda-forge::pvl
+  - ultralytics
+  - conda-forge::pycocotools
+  - anaconda::sympy
+prefix: /home/guests/nhigueraruiz/miniconda3/envs/tnormrl

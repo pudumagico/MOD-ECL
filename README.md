@@ -40,7 +40,7 @@ bash dl_experiments.sh
 
 1. Create a conda environment:
    ```bash
-   conda create --name modecl --file requirements.txt
+   conda env create -f environment.yml
    ```
 2. Download the logs using the link provided in our repository.
 3. Reproduce the main results with:
