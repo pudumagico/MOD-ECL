@@ -40,7 +40,7 @@ You can run the experiments using either a Conda environment or Docker. Make sur
 ### Conda (Recommended for local development)
 To create and activate the Conda environment:
 ```bash
-conda create --name modecl --file requirements.txt
+conda create --name modecl --file environment.yml
 conda activate modecl
 ```
 
