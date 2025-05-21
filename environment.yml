@@ -10,4 +10,3 @@ dependencies:
   - ultralytics
   - conda-forge::pycocotools
   - anaconda::sympy
-prefix: /home/guests/nhigueraruiz/miniconda3/envs/tnormrl
